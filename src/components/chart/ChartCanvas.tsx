@@ -1,3 +1,4 @@
+import { Crown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useKlines } from "@/hooks/use-klines";
 import { getIndicator } from "@/lib/indicators";
@@ -56,6 +57,10 @@ interface ChartCanvasProps {
   tool: ToolId;
   onToolConsumed: () => void;
   engineMode: EngineMode;
+  /** Minimum pixel height for the widget (0 = no floor). */
+  minHeight?: number;
+  /** Show the Founder Portal gold watermark on this pane. */
+  founderBadge?: boolean;
 }
 
 export default function ChartCanvas({
@@ -67,6 +72,8 @@ export default function ChartCanvas({
   tool,
   onToolConsumed,
   engineMode,
+  minHeight = 0,
+  founderBadge = false,
 }: ChartCanvasProps) {
   const { candles } = useKlines(symbolId, intervalId);
   const [tvReady, setTvReady] = useState(false);
@@ -104,7 +111,10 @@ export default function ChartCanvas({
   }, [indicators, chartType]);
 
   return (
-    <div className="relative h-full w-full min-h-0">
+    <div
+      className="relative h-full w-full min-h-0 overflow-hidden"
+      style={{ height: "100%", width: "100%", overflow: "hidden" }}
+    >
       {!showWidget && (
         <CustomChart
           candles={candles}
@@ -116,6 +126,7 @@ export default function ChartCanvas({
           tool={tool}
           onToolConsumed={onToolConsumed}
           resetKey={`${symbolId}-${intervalId}`}
+          readoutOffset={founderBadge}
         />
       )}
       {showWidget && (
@@ -125,7 +136,18 @@ export default function ChartCanvas({
           interval={tf.tv}
           style={chartType === "line" ? 2 : chartType === "bar" ? 0 : 1}
           studies={studies}
+          minHeight={minHeight}
         />
+      )}
+
+      {/* Founder Portal watermark badge (top-left of the chart area) */}
+      {founderBadge && (
+        <div className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-full border border-[#F4C430]/35 bg-[#0b101b]/75 px-2.5 py-1 backdrop-blur-sm">
+          <Crown className="size-3 shrink-0 text-[#F4C430]" />
+          <span className="truncate text-[10px] font-bold tracking-wide text-[#F4C430]">
+            Abdul Kudus Trading Academy · Founder Portal
+          </span>
+        </div>
       )}
     </div>
   );

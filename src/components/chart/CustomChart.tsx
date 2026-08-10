@@ -92,6 +92,8 @@ interface CustomChartProps {
   onToolConsumed: () => void;
   resetKey: string;
   className?: string;
+  /** Push the OHLC readout down so a top-left badge can sit above it. */
+  readoutOffset?: boolean;
 }
 
 /* ------------------------- series data helpers -------------------------- */
@@ -301,6 +303,7 @@ export default function CustomChart({
   onToolConsumed,
   resetKey,
   className,
+  readoutOffset = false,
 }: CustomChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -793,9 +796,18 @@ export default function CustomChart({
   const up = readout.close >= readout.open;
 
   return (
-    <div ref={containerRef} className={cn("relative h-full w-full min-h-0", className)}>
+    <div
+      ref={containerRef}
+      className={cn("relative h-full w-full min-h-0", className)}
+      style={{ height: "100%", width: "100%", overflow: "hidden" }}
+    >
       {/* OHLC readout */}
-      <div className="pointer-events-none absolute left-3 top-2 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-medium tabular-nums">
+      <div
+        className={cn(
+          "pointer-events-none absolute left-3 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-medium tabular-nums",
+          readoutOffset ? "top-9" : "top-2",
+        )}
+      >
         <span className="font-semibold text-slate-200">
           {symbolId}
           <span className="ml-1.5 font-normal text-slate-500">

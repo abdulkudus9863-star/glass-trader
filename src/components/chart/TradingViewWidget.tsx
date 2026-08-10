@@ -45,6 +45,8 @@ interface TradingViewWidgetProps {
   interval: string; // TV interval code, e.g. "60", "D"
   style: number; // 0 = bar, 1 = candles, 2 = line
   studies: string[];
+  /** Minimum pixel height of the widget area. Pass 0 to disable. */
+  minHeight?: number;
 }
 
 export default function TradingViewWidget({
@@ -53,6 +55,7 @@ export default function TradingViewWidget({
   interval,
   style,
   studies,
+  minHeight = 550,
 }: TradingViewWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -84,10 +87,28 @@ export default function TradingViewWidget({
   }, [paneId, tvSymbol, interval, style, studies]);
 
   return (
+    /* Explicit sizing on the wrapper and iframe parent keeps the widget from
+       collapsing or clipping its volume panel and time axis on small screens. */
     <div
-      id={`tv-widget-${paneId}`}
-      ref={containerRef}
-      className="h-full w-full min-h-0"
-    />
+      className="relative h-full w-full overflow-hidden"
+      style={{
+        height: "100%",
+        width: "100%",
+        overflow: "hidden",
+        minHeight: minHeight > 0 ? minHeight : undefined,
+      }}
+    >
+      <div
+        className="h-full w-full overflow-hidden"
+        style={{ height: "100%", width: "100%", overflow: "hidden" }}
+      >
+        <div
+          id={`tv-widget-${paneId}`}
+          ref={containerRef}
+          className="h-full w-full"
+          style={{ height: "100%", width: "100%" }}
+        />
+      </div>
+    </div>
   );
 }

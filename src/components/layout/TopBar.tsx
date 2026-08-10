@@ -8,6 +8,7 @@ import {
   LineChart,
   PanelRightClose,
   PanelRightOpen,
+  Radar,
   Rows2,
   Square,
 } from "lucide-react";
@@ -61,6 +62,8 @@ interface TopBarProps {
   onLayoutChange: (l: LayoutId) => void;
   rightOpen: boolean;
   onToggleRight: () => void;
+  smcOpen: boolean;
+  onToggleSmc: () => void;
 }
 
 export default function TopBar({
@@ -76,6 +79,8 @@ export default function TopBar({
   onLayoutChange,
   rightOpen,
   onToggleRight,
+  smcOpen,
+  onToggleSmc,
 }: TopBarProps) {
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-white/5 bg-[#0b101b]/70 px-3 py-2">
@@ -177,6 +182,25 @@ export default function TopBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onToggleSmc}
+              className={cn(
+                "glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-all hover:bg-white/5",
+                smcOpen
+                  ? "text-[#F4C430] ring-1 ring-[#F4C430]/40"
+                  : "text-slate-300",
+              )}
+            >
+              <Radar className="size-4 text-[#F4C430]" />
+              <span className="hidden md:inline">SMC AI</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">SMC AI analysis</TooltipContent>
+        </Tooltip>
+
         <div className="glass-chip hidden items-center gap-0.5 rounded-lg p-1 md:flex">
           {LAYOUTS.map((l) => {
             const Icon = l.icon;

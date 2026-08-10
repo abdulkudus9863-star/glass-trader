@@ -14,6 +14,8 @@ import Academy from "@/components/workspace/Academy";
 import AdminPortal from "@/components/workspace/AdminPortal";
 import PositionCalculator from "@/components/workspace/PositionCalculator";
 import TradeJournal from "@/components/workspace/TradeJournal";
+import SmcAnalysisDrawer from "@/components/workspace/SmcAnalysisDrawer";
+import { useAuth } from "@/hooks/use-auth";
 import { findSymbol, type TimeframeId } from "@/lib/market";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +53,8 @@ interface PaneCardProps {
   indicatorList: string[];
   tool: ToolId;
   engineMode: EngineMode;
+  chartMinHeight?: number;
+  founderBadge?: boolean;
   onActivate: () => void;
   onToolConsumed: () => void;
 }
@@ -62,6 +66,8 @@ function PaneCard({
   indicatorList,
   tool,
   engineMode,
+  chartMinHeight = 0,
+  founderBadge = false,
   onActivate,
   onToolConsumed,
 }: PaneCardProps) {
@@ -116,7 +122,7 @@ function PaneCard({
         </div>
       </div>
       <div
-        className="min-h-0 flex-1"
+        className="min-h-0 flex-1 max-sm:min-h-[550px]"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
@@ -129,6 +135,8 @@ function PaneCard({
           tool={active ? tool : null}
           onToolConsumed={onToolConsumed}
           engineMode={engineMode}
+          minHeight={chartMinHeight}
+          founderBadge={founderBadge}
         />
       </div>
     </div>
@@ -136,7 +144,10 @@ function PaneCard({
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const isFounder = user?.isFounder === true;
   const [tab, setTab] = useState<AppTab>("chart");
+  const [smcOpen, setSmcOpen] = useState(false);
   const [layout, setLayout] = useState<LayoutId>("1x1");
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
   const [activeId, setActiveId] = useState("p1");
@@ -206,6 +217,8 @@ export default function Dashboard() {
           onLayoutChange={setLayout}
           rightOpen={rightOpen}
           onToggleRight={() => setRightOpen((o) => !o)}
+          smcOpen={smcOpen}
+          onToggleSmc={() => setSmcOpen((o) => !o)}
         />
       )}
 
@@ -214,7 +227,7 @@ export default function Dashboard() {
         {/* Chart */}
         <div
           className={cn(
-            "absolute inset-0 flex gap-2.5 p-2.5",
+            "absolute inset-0 flex gap-2.5 p-2.5 max-sm:overflow-y-auto",
             tab !== "chart" && "hidden",
           )}
         >
@@ -222,7 +235,12 @@ export default function Dashboard() {
             <DrawingToolbar tool={tool} onToolChange={setTool} />
           </div>
 
-          <main className={cn("min-h-0 min-w-0 flex-1", GRID_CLASSES[layout])}>
+          <main
+            className={cn(
+              "min-h-0 min-w-0 flex-1 max-sm:h-auto max-sm:min-h-full",
+              GRID_CLASSES[layout],
+            )}
+          >
             {visiblePanes.map((pane) => (
               <PaneCard
                 key={pane.id}
@@ -232,6 +250,8 @@ export default function Dashboard() {
                 indicatorList={indicatorList}
                 tool={tool}
                 engineMode={engineMode}
+                chartMinHeight={layout === "1x1" ? 550 : 0}
+                founderBadge={pane.id === activeId && isFounder}
                 onActivate={() => setActiveId(pane.id)}
                 onToolConsumed={() => setTool(null)}
               />
@@ -246,6 +266,8 @@ export default function Dashboard() {
               />
             )}
           </AnimatePresence>
+
+          <SmcAnalysisDrawer open={smcOpen} onOpenChange={setSmcOpen} />
         </div>
 
         {/* Academy */}
