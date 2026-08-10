@@ -1,0 +1,297 @@
+/* DO NOT CHANGE */
+@import "tailwindcss";
+@import "tw-animate-css";
+@custom-variant dark (&:is(.dark *));
+
+/* DO NOT CHANGE */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* CHANGE VALUES FOR THEME — Light glassmorphism, restrained cool palette */
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.968 0.012 252);
+  --foreground: oklch(0.27 0.045 255);
+  --card: oklch(0.999 0 0);
+  --card-foreground: oklch(0.27 0.045 255);
+  --popover: oklch(0.999 0 0);
+  --popover-foreground: oklch(0.27 0.045 255);
+  --primary: oklch(0.545 0.19 262);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.942 0.02 255);
+  --secondary-foreground: oklch(0.32 0.04 255);
+  --muted: oklch(0.945 0.018 255);
+  --muted-foreground: oklch(0.545 0.03 255);
+  --accent: oklch(0.92 0.028 255);
+  --accent-foreground: oklch(0.3 0.04 255);
+  --destructive: oklch(0.61 0.19 23);
+  --border: oklch(0.885 0.016 255);
+  --input: oklch(0.885 0.016 255);
+  --ring: oklch(0.545 0.19 262);
+  --chart-1: oklch(0.545 0.19 262);
+  --chart-2: oklch(0.62 0.13 200);
+  --chart-3: oklch(0.72 0.12 170);
+  --chart-4: oklch(0.76 0.15 60);
+  --chart-5: oklch(0.6 0.15 330);
+  --sidebar: oklch(0.97 0.012 252);
+  --sidebar-foreground: oklch(0.27 0.045 255);
+  --sidebar-primary: oklch(0.545 0.19 262);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.92 0.028 255);
+  --sidebar-accent-foreground: oklch(0.3 0.04 255);
+  --sidebar-border: oklch(0.885 0.016 255);
+  --sidebar-ring: oklch(0.545 0.19 262);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground;
+    overflow-x: hidden;
+  }
+  button:not([disabled]),
+  [role="button"]:not([disabled]) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: oklch(0.545 0.19 262 / 0.22);
+  }
+  /* slim cool scrollbars */
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: oklch(0.82 0.02 255);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.72 0.03 255);
+  }
+}
+
+/* ==========================================================================
+   Light glassmorphism surfaces
+   ========================================================================== */
+@layer components {
+  .glass {
+    background: linear-gradient(
+      135deg,
+      oklch(1 0 0 / 0.72),
+      oklch(0.98 0.012 255 / 0.58)
+    );
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    backdrop-filter: blur(18px) saturate(1.5);
+    border: 1px solid oklch(1 0 0 / 0.85);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.9) inset,
+      0 12px 40px -12px oklch(0.35 0.05 255 / 0.18);
+  }
+
+  .glass-strong {
+    background: linear-gradient(
+      160deg,
+      oklch(1 0 0 / 0.86),
+      oklch(0.972 0.016 255 / 0.74)
+    );
+    -webkit-backdrop-filter: blur(26px) saturate(1.6);
+    backdrop-filter: blur(26px) saturate(1.6);
+    border: 1px solid oklch(1 0 0 / 0.9);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.95) inset,
+      0 24px 70px -20px oklch(0.35 0.06 260 / 0.28);
+  }
+
+  .glass-chip {
+    background: oklch(1 0 0 / 0.55);
+    -webkit-backdrop-filter: blur(10px) saturate(1.4);
+    backdrop-filter: blur(10px) saturate(1.4);
+    border: 1px solid oklch(1 0 0 / 0.8);
+    box-shadow: 0 1px 0 oklch(1 0 0 / 0.9) inset;
+  }
+
+  /* Animated cool aurora backdrop for marketing/auth pages */
+  .bg-aurora {
+    position: fixed;
+    inset: 0;
+    z-index: -10;
+    overflow: hidden;
+    background:
+      radial-gradient(
+        60rem 40rem at 12% -10%,
+        oklch(0.9 0.06 255 / 0.9),
+        transparent 60%
+      ),
+      radial-gradient(
+        50rem 36rem at 110% 8%,
+        oklch(0.9 0.08 200 / 0.75),
+        transparent 60%
+      ),
+      radial-gradient(
+        46rem 40rem at 50% 120%,
+        oklch(0.92 0.05 280 / 0.55),
+        transparent 65%
+      ),
+      linear-gradient(180deg, oklch(0.985 0.01 250), oklch(0.955 0.018 252));
+  }
+  .bg-aurora::before,
+  .bg-aurora::after {
+    content: "";
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(70px);
+    opacity: 0.55;
+  }
+  .bg-aurora::before {
+    width: 34rem;
+    height: 34rem;
+    left: -8rem;
+    top: 22%;
+    background: oklch(0.85 0.09 235 / 0.5);
+    animation: aurora-drift 22s ease-in-out infinite alternate;
+  }
+  .bg-aurora::after {
+    width: 28rem;
+    height: 28rem;
+    right: -6rem;
+    bottom: 8%;
+    background: oklch(0.85 0.09 190 / 0.45);
+    animation: aurora-drift 26s ease-in-out infinite alternate-reverse;
+  }
+
+  .grid-overlay {
+    background-image:
+      linear-gradient(oklch(0.6 0.04 255 / 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(0.6 0.04 255 / 0.07) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(
+      ellipse 90% 70% at 50% 30%,
+      black 40%,
+      transparent 100%
+    );
+  }
+
+  .ticker-track {
+    animation: ticker-scroll 46s linear infinite;
+    will-change: transform;
+  }
+  .ticker-track:hover {
+    animation-play-state: paused;
+  }
+}
+
+/* ==========================================================================
+   Keyframes
+   ========================================================================== */
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes aurora-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(4rem, -3rem, 0) scale(1.12);
+  }
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 6s ease-in-out infinite;
+}
+.animate-float-slower {
+  animation: float-slow 8.5s ease-in-out infinite;
+}
