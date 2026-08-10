@@ -1,23 +1,26 @@
 import {
-  Calculator,
+  Bot,
   CandlestickChart,
-  MessagesSquare,
-  NotebookPen,
+  FlaskConical,
+  MoreHorizontal,
+  Radar,
 } from "lucide-react";
-import type { AppTab } from "./AppHeader";
 import { cn } from "@/lib/utils";
 
+export type AppTab = "radar" | "charts" | "strategy" | "copilot" | "more";
+
 interface MobileNavItem {
-  id: Extract<AppTab, "chart" | "journal" | "calculator" | "chat">;
+  id: AppTab;
   label: string;
-  icon: typeof CandlestickChart;
+  icon: typeof Radar;
 }
 
 const ITEMS: MobileNavItem[] = [
-  { id: "chart", label: "Chart", icon: CandlestickChart },
-  { id: "journal", label: "Journal", icon: NotebookPen },
-  { id: "calculator", label: "Calculator", icon: Calculator },
-  { id: "chat", label: "Chat", icon: MessagesSquare },
+  { id: "radar", label: "Radar", icon: Radar },
+  { id: "charts", label: "Charts", icon: CandlestickChart },
+  { id: "strategy", label: "Strategy", icon: FlaskConical },
+  { id: "copilot", label: "Copilot", icon: Bot },
+  { id: "more", label: "More", icon: MoreHorizontal },
 ];
 
 interface MobileNavProps {
@@ -27,7 +30,7 @@ interface MobileNavProps {
 
 export default function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
   return (
-    <nav className="flex h-14 shrink-0 items-stretch justify-around border-t border-white/5 bg-[#0b101b]/95 backdrop-blur-xl lg:hidden">
+    <nav className="flex h-16 shrink-0 items-stretch justify-around border-t border-[#1B263B] bg-[#050811]/95 backdrop-blur-xl">
       {ITEMS.map((item) => {
         const Icon = item.icon;
         const active = activeTab === item.id;
@@ -38,16 +41,18 @@ export default function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
             aria-label={item.label}
             onClick={() => onTabChange(item.id)}
             className={cn(
-              "relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition-colors",
-              active
-                ? "text-amber-400"
-                : "text-slate-500 hover:text-slate-300",
+              "relative flex flex-1 flex-col items-center justify-center gap-1 font-display text-[10px] font-bold uppercase tracking-[0.14em] transition-colors",
+              active ? "text-[#F4C430]" : "text-slate-500 hover:text-slate-300",
             )}
           >
             {active && (
-              <span className="absolute top-0 h-0.5 w-8 rounded-full bg-amber-400" />
+              <span className="absolute top-0 h-0.5 w-10 rounded-full bg-[#F4C430] shadow-[0_0_10px_rgba(244,196,48,0.6)]" />
             )}
-            <Icon className="size-[18px]" strokeWidth={active ? 2.4 : 2} />
+            <Icon
+              className="size-[19px]"
+              strokeWidth={active ? 2.4 : 2}
+              style={active ? { filter: "drop-shadow(0 0 6px rgba(244,196,48,0.45))" } : undefined}
+            />
             {item.label}
           </button>
         );

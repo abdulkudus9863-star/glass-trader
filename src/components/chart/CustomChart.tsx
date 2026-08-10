@@ -21,6 +21,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { getIndicator } from "@/lib/indicators";
+import type { StrategyOverlay } from "@/lib/strategy";
 import {
   type Candle,
   atr,
@@ -94,6 +95,8 @@ interface CustomChartProps {
   className?: string;
   /** Push the OHLC readout down so a top-left badge can sit above it. */
   readoutOffset?: boolean;
+  /** Compiled strategy overlays to render (signal, zones, SL/TP lines). */
+  strategies?: StrategyOverlay[];
 }
 
 /* ------------------------- series data helpers -------------------------- */
@@ -131,6 +134,13 @@ function createIndicatorSeries(
     );
     s.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     store.set("volume", s);
+  } else if (id === "oi") {
+    const s = chart.addSeries(
+      LineSeries,
+      { color: "#00f0ff", lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
+      pane,
+    );
+    store.set("oi", s);
   } else if (id === "macd") {
     store.set(
       "macd-hist",
@@ -144,7 +154,7 @@ function createIndicatorSeries(
       "macd-macd",
       chart.addSeries(
         LineSeries,
-        { color: "#0d9488", lineWidth: 1, priceLineVisible: false },
+        { color: "#00e676", lineWidth: 1, priceLineVisible: false },
         pane,
       ),
     );
@@ -152,7 +162,7 @@ function createIndicatorSeries(
       "macd-signal",
       chart.addSeries(
         LineSeries,
-        { color: "#f59e0b", lineWidth: 1, priceLineVisible: false },
+        { color: "#f4c430", lineWidth: 1, priceLineVisible: false },
         pane,
       ),
     );
@@ -218,7 +228,7 @@ function updateIndicatorSeries(
         time: t(i),
         value: c.volume,
         color:
-          c.close >= c.open ? "rgba(8,153,129,0.40)" : "rgba(242,54,69,0.40)",
+          c.close >= c.open ? "rgba(0,230,118,0.40)" : "rgba(255,23,68,0.40)",
       })),
     );
   } else if (id === "macd-macd" || id === "macd-signal" || id === "macd-hist") {
@@ -230,7 +240,7 @@ function updateIndicatorSeries(
           data.push({
             time: t(i),
             value: v,
-            color: v >= 0 ? "rgba(13,148,136,0.5)" : "rgba(242,54,69,0.5)",
+            color: v >= 0 ? "rgba(0,230,118,0.5)" : "rgba(255,23,68,0.5)",
           });
       });
       series.setData(data);
@@ -260,7 +270,21 @@ function updateIndicatorSeries(
   else if (id === "sma50") series.setData(toLine(sma(closes, 50)));
   else if (id === "ema9") series.setData(toLine(ema(closes, 9)));
   else if (id === "ema21") series.setData(toLine(ema(closes, 21)));
-  else if (id === "vwap") series.setData(toLine(vwap(candles)));
+  else if (id === "ema50") series.setData(toLine(ema(closes, 50)));
+  else if (id === "ema200") series.setData(toLine(ema(closes, 200)));
+  else if (id === "oi") {
+    const base = ema(candles.map((c) => c.volume), 14);
+    series.setData(
+      toLine(
+        candles.map((c, i) => {
+          const b = base[i];
+          if (b == null) return null;
+          const noise = 0.88 + ((i * 7) % 24) / 100;
+          return b * noise;
+        }),
+      ),
+    );
+  } else if (id === "vwap") series.setData(toLine(vwap(candles)));
 }
 
 function pointSegDist(
@@ -304,6 +328,7 @@ export default function CustomChart({
   resetKey,
   className,
   readoutOffset = false,
+  strategies = [],
 }: CustomChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -313,6 +338,9 @@ export default function CustomChart({
   const priceLinesRef = useRef<Map<string, IPriceLine>>(new Map());
   const previewSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const strategiesRef = useRef<StrategyOverlay[]>([]);
+  const strategyLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
+  const symbolIdRef = useRef(symbolId);
 
   const candlesRef = useRef<Candle[]>(candles);
   const drawingsRef = useRef<Drawing[]>([]);
@@ -333,6 +361,8 @@ export default function CustomChart({
   decimalsRef.current = decimals;
   intradayRef.current = intraday;
   onToolConsumedRef.current = onToolConsumed;
+  strategiesRef.current = strategies;
+  symbolIdRef.current = symbolId;
 
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [rects, setRects] = useState<RectBox[]>([]);
@@ -354,10 +384,23 @@ export default function CustomChart({
     const markers: SeriesMarker<Time>[] = markerDrawings.map((d) => ({
       time: d.time as UTCTimestamp,
       position: d.kind === "long" ? "belowBar" : "aboveBar",
-      color: d.kind === "long" ? "#089981" : "#f23645",
+      color: d.kind === "long" ? "#00e676" : "#ff1744",
       shape: d.kind === "long" ? "arrowUp" : "arrowDown",
       text: d.kind === "long" ? "LONG" : "SHORT",
     }));
+    const last = candlesRef.current[candlesRef.current.length - 1];
+    for (const st of strategiesRef.current) {
+      if (!st.visible || st.bias === "WAIT") continue;
+      if (st.asset !== symbolIdRef.current) continue;
+      if (!last) continue;
+      markers.push({
+        time: last.time as UTCTimestamp,
+        position: st.bias === "LONG" ? "belowBar" : "aboveBar",
+        color: st.bias === "LONG" ? "#00e676" : "#ff1744",
+        shape: st.bias === "LONG" ? "arrowUp" : "arrowDown",
+        text: st.bias,
+      });
+    }
     plugin.setMarkers(markers);
   }, []);
 
@@ -376,7 +419,7 @@ export default function CustomChart({
           d.id,
           main.createPriceLine({
             price: d.price,
-            color: "rgba(41,98,255,0.85)",
+            color: "rgba(0,240,255,0.85)",
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
@@ -384,7 +427,7 @@ export default function CustomChart({
         );
       } else if (d.kind === "trendline") {
         const s = chart.addSeries(LineSeries, {
-          color: "rgba(41,98,255,0.9)",
+          color: "rgba(0,240,255,0.9)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           priceLineVisible: false,
@@ -406,7 +449,7 @@ export default function CustomChart({
             main.createPriceLine({
               price: lo + (hi - lo) * lv,
               color:
-                i === 3 ? "rgba(245,158,11,0.95)" : "rgba(41,98,255,0.55)",
+                i === 3 ? "rgba(244,196,48,0.95)" : "rgba(0,240,255,0.55)",
               lineWidth: i === 3 ? 2 : 1,
               lineStyle: i === 3 ? LineStyle.Solid : LineStyle.Dotted,
               axisLabelVisible: i === 3,
@@ -427,6 +470,45 @@ export default function CustomChart({
         ]);
         trendSeriesRef.current.set(d.id, s);
       }
+    }
+  }, []);
+
+  const syncStrategyVisuals = useCallback(() => {
+    const chart = chartRef.current;
+    const main = mainSeriesRef.current;
+    if (!chart || !main) return;
+    for (const lines of strategyLinesRef.current.values()) {
+      for (const pl of lines) main.removePriceLine(pl);
+    }
+    strategyLinesRef.current.clear();
+
+    for (const st of strategiesRef.current) {
+      if (!st.visible || st.bias === "WAIT") continue;
+      if (st.asset !== symbolIdRef.current) continue;
+      const lines: IPriceLine[] = [];
+      const add = (
+        price: number,
+        color: string,
+        title: string,
+        style: LineStyle,
+      ) => {
+        lines.push(
+          main.createPriceLine({
+            price,
+            color,
+            title,
+            lineWidth: 1,
+            lineStyle: style,
+            axisLabelVisible: true,
+          }),
+        );
+      };
+      add(st.stopLoss, "#ff1744", "SL", LineStyle.Solid);
+      add(st.takeProfits[0], "#00e676", "TP1", LineStyle.Solid);
+      add(st.takeProfits[1], "#00e676", "TP2", LineStyle.Solid);
+      add(st.entryZone[0], "#f4c430", st.bias, LineStyle.Dashed);
+      add(st.entryZone[1], "#f4c430", "", LineStyle.Dashed);
+      strategyLinesRef.current.set(st.id, lines);
     }
   }, []);
 
@@ -472,6 +554,20 @@ export default function CustomChart({
         if (c1 && c2) push(c1.time, c2.time, zone.top, zone.bottom, zone.bullish, "FVG");
       }
     }
+    for (const st of strategiesRef.current) {
+      if (!st.visible || st.asset !== symbolIdRef.current) continue;
+      if (c.length < 2) continue;
+      const start = c[Math.max(0, c.length - 8)];
+      const end = c[c.length - 1];
+      push(
+        start.time,
+        end.time,
+        Math.max(st.entryZone[0], st.entryZone[1]),
+        Math.min(st.entryZone[0], st.entryZone[1]),
+        st.bias === "LONG",
+        st.bias === "LONG" ? "BUY ZONE" : "SELL ZONE",
+      );
+    }
     setRects(boxes);
   }, []);
 
@@ -511,23 +607,23 @@ export default function CustomChart({
     let main: ISeriesApi<any>;
     if (type === "line") {
       main = chart.addSeries(LineSeries, {
-        color: "#4f46e5",
+        color: "#00f0ff",
         lineWidth: 2,
         priceLineVisible: false,
       });
     } else if (type === "bar") {
       main = chart.addSeries(BarSeries, {
-        upColor: "#089981",
-        downColor: "#f23645",
+        upColor: "#00e676",
+        downColor: "#ff1744",
         thinBars: false,
         priceLineVisible: false,
       });
     } else {
       main = chart.addSeries(CandlestickSeries, {
-        upColor: "#089981",
-        downColor: "#f23645",
-        wickUpColor: "#089981",
-        wickDownColor: "#f23645",
+        upColor: "#00e676",
+        downColor: "#ff1744",
+        wickUpColor: "#00e676",
+        wickDownColor: "#ff1744",
         borderVisible: false,
         priceLineVisible: false,
       });
@@ -571,7 +667,7 @@ export default function CustomChart({
         if (price != null) {
           if (!previewSeriesRef.current) {
             previewSeriesRef.current = chart.addSeries(LineSeries, {
-              color: "rgba(41,98,255,0.5)",
+              color: "rgba(0,240,255,0.5)",
               lineWidth: 1,
               lineStyle: LineStyle.Dashed,
               priceLineVisible: false,
@@ -686,16 +782,16 @@ export default function CustomChart({
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: {
-          color: "rgba(41,98,255,0.35)",
+          color: "rgba(0,240,255,0.35)",
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: "#2962ff",
+          labelBackgroundColor: "#00f0ff",
         },
         horzLine: {
-          color: "rgba(41,98,255,0.35)",
+          color: "rgba(0,240,255,0.35)",
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: "#2962ff",
+          labelBackgroundColor: "#00f0ff",
         },
       },
       rightPriceScale: { borderColor: "rgba(120,123,134,0.25)" },
@@ -747,6 +843,7 @@ export default function CustomChart({
       seriesRefs.current.clear();
       trendSeriesRef.current.clear();
       priceLinesRef.current.clear();
+      strategyLinesRef.current.clear();
       previewSeriesRef.current = null;
       markersPluginRef.current = null;
       pendingRef.current = null;
@@ -788,6 +885,13 @@ export default function CustomChart({
     syncMarkers();
     computeRects();
   }, [drawings, tool, syncDrawingVisuals, syncMarkers, computeRects, removePreview]);
+
+  /* compiled strategy overlays */
+  useEffect(() => {
+    syncStrategyVisuals();
+    syncMarkers();
+    computeRects();
+  }, [strategies, syncStrategyVisuals, syncMarkers, computeRects]);
 
   /* ------------------------------- render -------------------------------- */
 

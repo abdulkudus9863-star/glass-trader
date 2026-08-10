@@ -1,23 +1,32 @@
 import { AnimatePresence } from "framer-motion";
+import { Eye, EyeOff, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import AiAnalysisDrawer from "@/components/chart/AiAnalysisDrawer";
 import ChartCanvas, { type EngineMode } from "@/components/chart/ChartCanvas";
 import { type ChartType, type ToolId } from "@/components/chart/CustomChart";
 import DrawingToolbar from "@/components/chart/DrawingToolbar";
+import IndicatorDrawer from "@/components/chart/IndicatorDrawer";
 import IndicatorModal from "@/components/chart/IndicatorModal";
-import AppHeader, { type AppTab } from "@/components/layout/AppHeader";
-import MobileNav from "@/components/layout/MobileNav";
+import AppHeader from "@/components/layout/AppHeader";
+import MobileNav, { type AppTab } from "@/components/layout/MobileNav";
 import TopBar, { type LayoutId } from "@/components/layout/TopBar";
-import RightPanel from "@/components/workspace/RightPanel";
-import CommunityChat from "@/components/workspace/CommunityChat";
-import Academy from "@/components/workspace/Academy";
-import AdminPortal from "@/components/workspace/AdminPortal";
-import PositionCalculator from "@/components/workspace/PositionCalculator";
-import TradeJournal from "@/components/workspace/TradeJournal";
-import SmcAnalysisDrawer from "@/components/workspace/SmcAnalysisDrawer";
+import { usePwaInstall } from "@/hooks/use-pwa-install";
+import { useTokens } from "@/hooks/use-tokens";
 import { useAuth } from "@/hooks/use-auth";
 import { findSymbol, type TimeframeId } from "@/lib/market";
+import {
+  overlayFromSpec,
+  type StrategyOverlay,
+  type StrategySpec,
+} from "@/lib/strategy";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import RightPanel from "@/components/workspace/RightPanel";
+import Copilot from "@/components/workspace/Copilot";
+import MorePanel from "@/components/workspace/MorePanel";
+import Radar from "@/components/workspace/Radar";
+import SmcAnalysisDrawer from "@/components/workspace/SmcAnalysisDrawer";
+import StrategyCompiler from "@/components/workspace/StrategyCompiler";
 
 interface PaneState {
   id: string;
@@ -55,6 +64,7 @@ interface PaneCardProps {
   engineMode: EngineMode;
   chartMinHeight?: number;
   founderBadge?: boolean;
+  strategies: StrategyOverlay[];
   onActivate: () => void;
   onToolConsumed: () => void;
 }
@@ -68,6 +78,7 @@ function PaneCard({
   engineMode,
   chartMinHeight = 0,
   founderBadge = false,
+  strategies,
   onActivate,
   onToolConsumed,
 }: PaneCardProps) {
@@ -83,13 +94,13 @@ function PaneCard({
       className={cn(
         "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl glass transition-all",
         active
-          ? "shadow-lg shadow-black/40 ring-2 ring-amber-400/70"
-          : "hover:ring-1 hover:ring-amber-300/40",
+          ? "shadow-lg shadow-black/40 ring-2 ring-[#F4C430]/70"
+          : "hover:ring-1 hover:ring-[#F4C430]/40",
       )}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-[13px] font-bold tracking-tight text-foreground">
+          <span className="font-mono text-[13px] font-bold tracking-tight text-foreground">
             {sym.id}
           </span>
           <span className="hidden truncate text-[11px] text-muted-foreground md:inline">
@@ -115,7 +126,7 @@ function PaneCard({
             {pane.intervalId}
           </span>
           {indicatorList.length > 0 && (
-            <span className="rounded-full bg-amber-400/15 px-1.5 py-px font-semibold text-amber-400">
+            <span className="rounded-full bg-[#F4C430]/15 px-1.5 py-px font-semibold text-[#F4C430]">
               {indicatorList.length}
             </span>
           )}
@@ -137,6 +148,7 @@ function PaneCard({
           engineMode={engineMode}
           minHeight={chartMinHeight}
           founderBadge={founderBadge}
+          strategies={strategies}
         />
       </div>
     </div>
@@ -146,8 +158,12 @@ function PaneCard({
 export default function Dashboard() {
   const { user } = useAuth();
   const isFounder = user?.isFounder === true;
-  const [tab, setTab] = useState<AppTab>("chart");
+  const isAdmin = user?.role === "admin";
+
+  const [tab, setTab] = useState<AppTab>("radar");
   const [smcOpen, setSmcOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
   const [layout, setLayout] = useState<LayoutId>("1x1");
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
   const [activeId, setActiveId] = useState("p1");
@@ -159,6 +175,10 @@ export default function Dashboard() {
   const [indicators, setIndicators] = useState<Set<string>>(
     () => new Set(["volume", "sma20"]),
   );
+  const [strategies, setStrategies] = useState<StrategyOverlay[]>([]);
+
+  const { tokens, spend } = useTokens();
+  const { canInstall, install } = usePwaInstall();
 
   const indicatorList = useMemo(() => [...indicators], [indicators]);
   const visiblePanes =
@@ -172,7 +192,9 @@ export default function Dashboard() {
     }
   }, [layout, activeId, visiblePanes]);
 
-  const updateActivePane = (patch: Partial<Pick<PaneState, "symbolId" | "intervalId">>) => {
+  const updateActivePane = (
+    patch: Partial<Pick<PaneState, "symbolId" | "intervalId">>,
+  ) => {
     setPanes((prev) =>
       prev.map((p) => (p.id === activeId ? { ...p, ...patch } : p)),
     );
@@ -180,7 +202,6 @@ export default function Dashboard() {
 
   const handleSelectSymbol = (id: string) => {
     updateActivePane({ symbolId: id });
-    setTab("chart");
   };
 
   const toggleIndicator = (id: string) => {
@@ -192,18 +213,43 @@ export default function Dashboard() {
     });
   };
 
+  /* Strategy compiler → chart injection */
+  const applyStrategyToChart = (spec: StrategySpec) => {
+    setStrategies((prev) => [
+      ...prev.filter((s) => s.id !== spec.id),
+      overlayFromSpec(spec),
+    ]);
+    if (spec.asset !== activePane.symbolId) {
+      updateActivePane({ symbolId: spec.asset });
+    }
+    setEngineMode("custom"); // overlays render on the custom canvas
+    setTab("charts");
+  };
+
+  const toggleStrategyVisible = (id: string) => {
+    setStrategies((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, visible: !s.visible } : s)),
+    );
+  };
+
+  const removeStrategy = (id: string) => {
+    setStrategies((prev) => prev.filter((s) => s.id !== id));
+  };
+
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-[#070B14] text-foreground">
+    <div className="flex h-dvh flex-col overflow-hidden bg-[#050811] text-foreground">
       <AppHeader
-        activeTab={tab}
-        onTabChange={setTab}
         symbolId={activePane.symbolId}
         onSymbolSelect={handleSelectSymbol}
         indicatorCount={indicatorList.length}
         onOpenIndicators={() => setIndicatorModalOpen(true)}
+        tokens={tokens}
+        isFounder={isFounder}
+        canInstall={canInstall}
+        onInstall={install}
       />
 
-      {tab === "chart" && (
+      {tab === "charts" && (
         <TopBar
           symbolId={activePane.symbolId}
           onSymbolSelect={(id) => updateActivePane({ symbolId: id })}
@@ -219,16 +265,68 @@ export default function Dashboard() {
           onToggleRight={() => setRightOpen((o) => !o)}
           smcOpen={smcOpen}
           onToggleSmc={() => setSmcOpen((o) => !o)}
+          indicatorDrawerOpen={indicatorDrawerOpen}
+          onToggleIndicatorDrawer={() => setIndicatorDrawerOpen((o) => !o)}
+          aiOpen={aiOpen}
+          onToggleAi={() => setAiOpen((o) => !o)}
+          strategyCount={strategies.length}
         />
+      )}
+
+      {/* Active strategy overlays strip (charts tab) */}
+      {tab === "charts" && strategies.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[#1B263B] bg-[#0D1424]/60 px-3 py-1.5">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+            Active indicators
+          </span>
+          {strategies.map((s) => (
+            <span
+              key={s.id}
+              className="flex items-center gap-1.5 rounded-full border border-[#A855F7]/30 bg-[#A855F7]/10 py-0.5 pl-2.5 pr-1 text-[10px] font-semibold text-[#A855F7]"
+            >
+              <span className="size-1.5 rounded-full bg-[#A855F7]" />
+              {s.name}
+              <span className="rounded bg-white/10 px-1 font-mono text-[9px] text-slate-300">
+                {s.asset}
+              </span>
+              <button
+                type="button"
+                aria-label={s.visible ? "Hide overlay" : "Show overlay"}
+                onClick={() => toggleStrategyVisible(s.id)}
+                className="flex size-5 items-center justify-center rounded-full text-[#A855F7]/70 transition-colors hover:bg-white/10 hover:text-[#A855F7]"
+              >
+                {s.visible ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
+              </button>
+              <button
+                type="button"
+                aria-label="Remove overlay"
+                onClick={() => removeStrategy(s.id)}
+                className="flex size-5 items-center justify-center rounded-full text-[#A855F7]/70 transition-colors hover:bg-white/10 hover:text-rose-400"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Content — every tab stays mounted so the chart never loses state */}
       <div className="relative min-h-0 flex-1">
-        {/* Chart */}
+        {/* RADAR */}
+        <div
+          className={cn(
+            "absolute inset-0 overflow-y-auto",
+            tab !== "radar" && "hidden",
+          )}
+        >
+          <Radar symbolId={activePane.symbolId} timeframe={activePane.intervalId} />
+        </div>
+
+        {/* CHARTS */}
         <div
           className={cn(
             "absolute inset-0 flex gap-2.5 p-2.5 max-sm:overflow-y-auto",
-            tab !== "chart" && "hidden",
+            tab !== "charts" && "hidden",
           )}
         >
           <div className="hidden shrink-0 md:block">
@@ -252,6 +350,7 @@ export default function Dashboard() {
                 engineMode={engineMode}
                 chartMinHeight={layout === "1x1" ? 550 : 0}
                 founderBadge={pane.id === activeId && isFounder}
+                strategies={strategies}
                 onActivate={() => setActiveId(pane.id)}
                 onToolConsumed={() => setTool(null)}
               />
@@ -268,60 +367,54 @@ export default function Dashboard() {
           </AnimatePresence>
 
           <SmcAnalysisDrawer open={smcOpen} onOpenChange={setSmcOpen} />
+          <IndicatorDrawer
+            open={indicatorDrawerOpen}
+            onOpenChange={setIndicatorDrawerOpen}
+            indicators={indicators}
+            onToggle={toggleIndicator}
+          />
+          <AiAnalysisDrawer
+            open={aiOpen}
+            onOpenChange={setAiOpen}
+            symbolId={activePane.symbolId}
+            intervalId={activePane.intervalId}
+          />
         </div>
 
-        {/* Academy */}
+        {/* STRATEGY */}
         <div
           className={cn(
             "absolute inset-0 overflow-y-auto",
-            tab !== "academy" && "hidden",
+            tab !== "strategy" && "hidden",
           )}
         >
-          <Academy />
+          <StrategyCompiler
+            tokens={tokens}
+            onSpend={spend}
+            activeAsset={activePane.symbolId}
+            activeTimeframe={activePane.intervalId}
+            onApplyToChart={applyStrategyToChart}
+          />
         </div>
 
-        {/* Position calculator */}
+        {/* COPILOT */}
         <div
           className={cn(
             "absolute inset-0 overflow-y-auto",
-            tab !== "calculator" && "hidden",
+            tab !== "copilot" && "hidden",
           )}
         >
-          <PositionCalculator />
+          <Copilot symbolId={activePane.symbolId} />
         </div>
 
-        {/* Trade journal */}
+        {/* MORE */}
         <div
           className={cn(
             "absolute inset-0 overflow-y-auto",
-            tab !== "journal" && "hidden",
+            tab !== "more" && "hidden",
           )}
         >
-          <TradeJournal />
-        </div>
-
-        {/* Community chat */}
-        <div
-          className={cn(
-            "absolute inset-0 overflow-y-auto",
-            tab !== "chat" && "hidden",
-          )}
-        >
-          <div className="flex h-full flex-col p-4">
-            <div className="glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
-              <CommunityChat />
-            </div>
-          </div>
-        </div>
-
-        {/* Admin portal */}
-        <div
-          className={cn(
-            "absolute inset-0 overflow-y-auto",
-            tab !== "admin" && "hidden",
-          )}
-        >
-          <AdminPortal />
+          <MorePanel isAdmin={isAdmin} isFounder={isFounder} />
         </div>
       </div>
 

@@ -1,13 +1,10 @@
 import {
-  Calculator,
-  CandlestickChart,
   ChevronDown,
+  CircleDollarSign,
+  Crown,
+  Download,
   FunctionSquare,
-  GraduationCap,
   LogOut,
-  MessagesSquare,
-  NotebookPen,
-  ShieldCheck,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -26,30 +23,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { findSymbol, type MarketType } from "@/lib/market";
 import { cn } from "@/lib/utils";
 
-export type AppTab =
-  | "chart"
-  | "academy"
-  | "calculator"
-  | "journal"
-  | "chat"
-  | "admin";
-
-interface NavItem {
-  id: AppTab;
-  label: string;
-  icon: typeof CandlestickChart;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { id: "chart", label: "Chart", icon: CandlestickChart },
-  { id: "academy", label: "Academy", icon: GraduationCap },
-  { id: "calculator", label: "Position Calculator", icon: Calculator },
-  { id: "journal", label: "Trade Journal", icon: NotebookPen },
-  { id: "chat", label: "Community Chat", icon: MessagesSquare },
-];
-
 /** Assets offered by the quick-selector dropdown in the top bar. */
-const QUICK_ASSETS = ["XAUUSD", "EURUSD", "GBPUSD", "BTCUSD"] as const;
+const QUICK_ASSETS = ["XAUUSD", "BTCUSDT", "EURUSD", "ETHUSDT"] as const;
 
 const MARKET_CHIP: Record<MarketType, string> = {
   crypto: "bg-amber-500/10 text-amber-400 border-amber-500/25",
@@ -60,30 +35,30 @@ const MARKET_CHIP: Record<MarketType, string> = {
 };
 
 interface AppHeaderProps {
-  activeTab: AppTab;
-  onTabChange: (tab: AppTab) => void;
   symbolId: string;
   onSymbolSelect: (id: string) => void;
   indicatorCount: number;
   onOpenIndicators: () => void;
+  tokens: number;
+  isFounder: boolean;
+  canInstall: boolean;
+  onInstall: () => void;
 }
 
 export default function AppHeader({
-  activeTab,
-  onTabChange,
   symbolId,
   onSymbolSelect,
   indicatorCount,
   onOpenIndicators,
+  tokens,
+  isFounder,
+  canInstall,
+  onInstall,
 }: AppHeaderProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const activeSymbol = findSymbol(symbolId);
-
-  const navItems: NavItem[] = isAdmin
-    ? [...NAV_ITEMS, { id: "admin", label: "Admin Portal", icon: ShieldCheck }]
-    : NAV_ITEMS;
 
   const handleSignOut = async () => {
     await signOut();
@@ -100,15 +75,18 @@ export default function AppHeader({
     : (user?.email ?? "T")[0].toUpperCase();
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-white/5 bg-[#0b101b]/95 px-3 backdrop-blur-xl sm:px-4">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[#1B263B] bg-[#050811]/95 px-3 backdrop-blur-xl sm:px-4">
       {/* Brand */}
       <div className="flex shrink-0 items-center gap-2.5">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-yellow-600 text-[#0b101b] shadow-md shadow-amber-500/20">
-          <CandlestickChart className="size-4" strokeWidth={2.4} />
+        <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#F4C430] to-yellow-600 text-[#0a0e1a] shadow-md shadow-[#F4C430]/20">
+          <CandlestickMark />
         </div>
         <div className="hidden leading-tight sm:block">
-          <p className="text-[13px] font-bold tracking-tight text-amber-400">
+          <p className="flex items-center gap-1.5 text-[13px] font-bold tracking-tight text-[#F4C430]">
             Abdul Kudus
+            <span className="rounded bg-[#F4C430]/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-widest text-[#F4C430] ring-1 ring-[#F4C430]/30">
+              Beta
+            </span>
           </p>
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">
             Trading Academy
@@ -116,37 +94,57 @@ export default function AppHeader({
         </div>
       </div>
 
-      {/* Primary navigation */}
-      <nav className="mx-auto hidden items-center gap-1 lg:flex">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onTabChange(item.id)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-all",
-                active
-                  ? "bg-amber-400/10 text-amber-400 shadow-sm shadow-amber-500/10 ring-1 ring-amber-400/25"
-                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
-              )}
-            >
-              <Icon className="size-3.5" />
-              {item.label}
-              {item.id === "admin" && (
-                <span className="rounded bg-amber-400/15 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-amber-400">
-                  Admin
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
       {/* Right cluster */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {/* Token wallet */}
+        <div className="glass-chip hidden h-9 items-center gap-1.5 rounded-lg px-2.5 md:flex">
+          <CircleDollarSign className="size-4 text-[#F4C430]" />
+          <span className="font-mono text-xs font-bold text-foreground">{tokens}</span>
+          <span className="hidden text-[10px] font-medium text-muted-foreground xl:inline">
+            Trial Tokens
+          </span>
+        </div>
+
+        {/* Account status */}
+        <div
+          className={cn(
+            "glass-chip hidden h-9 items-center gap-1.5 rounded-lg px-2.5 sm:flex",
+          )}
+        >
+          {isFounder ? (
+            <Crown className="size-3.5 text-[#F4C430]" />
+          ) : (
+            <span className="size-2 rounded-full bg-[#00F0FF]" />
+          )}
+          <span
+            className={cn(
+              "font-display text-[10px] font-bold tracking-[0.18em]",
+              isFounder ? "text-[#F4C430]" : "text-[#00F0FF]",
+            )}
+          >
+            {isFounder ? "FOUNDER" : "PRO"}
+          </span>
+        </div>
+
+        {/* Install PWA */}
+        {canInstall && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Install app"
+                className="glass-chip h-9 w-9 rounded-lg text-slate-400 hover:bg-white/5 hover:text-[#F4C430]"
+                onClick={onInstall}
+              >
+                <Download className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Install the app</TooltipContent>
+          </Tooltip>
+        )}
+
         {/* Asset quick-selector */}
         <Popover>
           <PopoverTrigger asChild>
@@ -154,7 +152,7 @@ export default function AppHeader({
               type="button"
               className="glass-chip flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm font-semibold transition-all hover:bg-white/5"
             >
-              <span className="text-amber-400">{activeSymbol?.id ?? "—"}</span>
+              <span className="text-[#F4C430]">{activeSymbol?.id ?? "—"}</span>
               <span className="hidden text-xs font-medium text-muted-foreground md:inline">
                 {activeSymbol?.name}
               </span>
@@ -180,11 +178,11 @@ export default function AppHeader({
                   onClick={() => onSymbolSelect(s.id)}
                   className={cn(
                     "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left transition-colors hover:bg-white/5",
-                    active && "bg-amber-400/10",
+                    active && "bg-[#F4C430]/10",
                   )}
                 >
                   <span className="flex min-w-0 flex-col">
-                    <span className="text-sm font-semibold text-foreground">
+                    <span className="font-mono text-sm font-semibold text-foreground">
                       {s.id}
                     </span>
                     <span className="truncate text-[11px] text-muted-foreground">
@@ -211,19 +209,19 @@ export default function AppHeader({
           onClick={onOpenIndicators}
           className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
         >
-          <FunctionSquare className="size-4 text-amber-400" />
+          <FunctionSquare className="size-4 text-[#F4C430]" />
           <span className="hidden sm:inline">ƒx Indicators</span>
           {indicatorCount > 0 && (
-            <span className="rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-[#0b101b]">
+            <span className="rounded-full bg-[#F4C430] px-1.5 py-px text-[10px] font-bold text-[#0a0e1a]">
               {indicatorCount}
             </span>
           )}
         </button>
 
         {/* Profile badge */}
-        <div className="glass-chip flex h-9 items-center gap-2 rounded-lg py-1 pl-1 pr-2">
+        <div className="glass-chip hidden h-9 items-center gap-2 rounded-lg py-1 pl-1 pr-2 lg:flex">
           <Avatar className="size-7">
-            <AvatarFallback className="bg-gradient-to-br from-amber-400 to-yellow-600 text-[11px] font-bold text-[#0b101b]">
+            <AvatarFallback className="bg-gradient-to-br from-[#F4C430] to-yellow-600 text-[11px] font-bold text-[#0a0e1a]">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -232,7 +230,7 @@ export default function AppHeader({
               {user?.name?.trim() || (user?.email ?? "Trader")}
             </p>
             <p className="text-[10px] text-muted-foreground">
-              {isAdmin ? "Administrator" : "Academy member"}
+              {isFounder ? "Founder / Super Admin" : isAdmin ? "Administrator" : "Pro member"}
             </p>
           </div>
         </div>
@@ -255,5 +253,20 @@ export default function AppHeader({
         </Tooltip>
       </div>
     </header>
+  );
+}
+
+function CandlestickMark() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M8 3v3M8 18v3M16 3v3M16 18v3"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <rect x="5.5" y="6" width="5" height="12" rx="1" fill="currentColor" />
+      <rect x="13.5" y="6" width="5" height="8" rx="1" fill="currentColor" opacity="0.55" />
+    </svg>
   );
 }

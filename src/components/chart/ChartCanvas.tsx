@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useKlines } from "@/hooks/use-klines";
 import { getIndicator } from "@/lib/indicators";
 import { findSymbol, getTimeframe, type TimeframeId } from "@/lib/market";
+import type { StrategyOverlay } from "@/lib/strategy";
 import CustomChart, { type ChartType, type ToolId } from "./CustomChart";
 import TradingViewWidget, { ensureTvScript, tvState } from "./TradingViewWidget";
 
@@ -61,6 +62,8 @@ interface ChartCanvasProps {
   minHeight?: number;
   /** Show the Founder Portal gold watermark on this pane. */
   founderBadge?: boolean;
+  /** Compiled strategy overlays to inject onto the canvas. */
+  strategies?: StrategyOverlay[];
 }
 
 export default function ChartCanvas({
@@ -74,6 +77,7 @@ export default function ChartCanvas({
   engineMode,
   minHeight = 0,
   founderBadge = false,
+  strategies = [],
 }: ChartCanvasProps) {
   const { candles } = useKlines(symbolId, intervalId);
   const [tvReady, setTvReady] = useState(false);
@@ -127,6 +131,7 @@ export default function ChartCanvas({
           onToolConsumed={onToolConsumed}
           resetKey={`${symbolId}-${intervalId}`}
           readoutOffset={founderBadge}
+          strategies={strategies}
         />
       )}
       {showWidget && (
