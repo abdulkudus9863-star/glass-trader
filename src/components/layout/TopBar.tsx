@@ -1,21 +1,16 @@
-import { useNavigate } from "react-router";
 import {
   Activity,
   BarChart3,
   CandlestickChart,
   Check,
   Cpu,
-  FunctionSquare,
   Grid2x2,
   LineChart,
-  LogOut,
   PanelRightClose,
   PanelRightOpen,
   Rows2,
   Square,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -32,8 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAuth } from "@/hooks/use-auth";
-import { TIMEFRAMES, findSymbol, type TimeframeId } from "@/lib/market";
+import { TIMEFRAMES, type TimeframeId } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import type { EngineMode } from "@/components/chart/ChartCanvas";
 import type { ChartType } from "@/components/chart/CustomChart";
@@ -61,8 +55,6 @@ interface TopBarProps {
   onIntervalChange: (id: TimeframeId) => void;
   chartType: ChartType;
   onChartTypeChange: (t: ChartType) => void;
-  indicatorCount: number;
-  onOpenIndicators: () => void;
   engineMode: EngineMode;
   onEngineModeChange: (m: EngineMode) => void;
   layout: LayoutId;
@@ -78,8 +70,6 @@ export default function TopBar({
   onIntervalChange,
   chartType,
   onChartTypeChange,
-  indicatorCount,
-  onOpenIndicators,
   engineMode,
   onEngineModeChange,
   layout,
@@ -87,44 +77,8 @@ export default function TopBar({
   rightOpen,
   onToggleRight,
 }: TopBarProps) {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
-  const activeSymbol = findSymbol(symbolId);
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/");
-  };
-
-  const initials =
-    user?.name?.trim()
-      ? user.name
-          .split(" ")
-          .map((p) => p[0])
-          .slice(0, 2)
-          .join("")
-          .toUpperCase()
-      : (user?.email ?? "T")[0].toUpperCase();
-
   return (
-    <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border/60 px-3 py-2">
-      <div className="glass-chip flex items-center gap-2.5 rounded-xl px-2.5 py-1.5">
-        <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-sky-400 text-white shadow-md shadow-blue-600/30">
-          <CandlestickChart className="size-4" />
-        </div>
-        <div className="hidden leading-tight lg:block">
-          <p className="text-[13px] font-bold tracking-tight text-foreground">
-            Vantage
-          </p>
-          <p className="text-[10px] text-muted-foreground">Professional terminal</p>
-        </div>
-        {user?.role === "admin" && (
-          <Badge className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-400">
-            Admin
-          </Badge>
-        )}
-      </div>
-
+    <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-white/5 bg-[#0b101b]/70 px-3 py-2">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <SymbolSearch value={symbolId} onSelect={onSymbolSelect} />
 
@@ -137,7 +91,7 @@ export default function TopBar({
               className={cn(
                 "rounded-md px-2 py-1 text-xs font-semibold transition-all",
                 tf.id === intervalId
-                  ? "bg-blue-600 text-white shadow-sm shadow-blue-600/40"
+                  ? "bg-amber-400 text-[#0b101b] shadow-sm shadow-amber-500/30"
                   : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
               )}
             >
@@ -155,7 +109,7 @@ export default function TopBar({
               {(() => {
                 const t = CHART_TYPES.find((c) => c.id === chartType);
                 const Icon = t?.icon ?? CandlestickChart;
-                return <Icon className="size-4 text-blue-400" />;
+                return <Icon className="size-4 text-amber-400" />;
               })()}
               <span className="hidden sm:inline">
                 {CHART_TYPES.find((c) => c.id === chartType)?.label}
@@ -172,28 +126,14 @@ export default function TopBar({
                   onSelect={() => onChartTypeChange(t.id)}
                   className="gap-2.5"
                 >
-                  <Icon className="size-4 text-slate-500" />
+                  <Icon className="size-4 text-slate-400" />
                   <span className="flex-1">{t.label}</span>
-                  {chartType === t.id && <Check className="size-4 text-blue-400" />}
+                  {chartType === t.id && <Check className="size-4 text-amber-400" />}
                 </DropdownMenuItem>
               );
             })}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <button
-          type="button"
-          onClick={onOpenIndicators}
-          className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
-        >
-          <FunctionSquare className="size-4 text-blue-400" />
-          <span className="hidden sm:inline">Indicators</span>
-          {indicatorCount > 0 && (
-            <span className="rounded-full bg-blue-600 px-1.5 py-px text-[10px] font-bold text-white">
-              {indicatorCount}
-            </span>
-          )}
-        </button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -201,7 +141,7 @@ export default function TopBar({
               type="button"
               className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
             >
-              <Cpu className="size-4 text-blue-400" />
+              <Cpu className="size-4 text-amber-400" />
               <span className="hidden md:inline">Engine</span>
               <span className="text-[10px] font-bold uppercase text-slate-400">
                 {engineMode}
@@ -250,7 +190,7 @@ export default function TopBar({
                     className={cn(
                       "flex size-7 items-center justify-center rounded-md transition-all",
                       layout === l.id
-                        ? "bg-blue-600 text-white shadow-sm shadow-blue-600/40"
+                        ? "bg-amber-400 text-[#0b101b] shadow-sm shadow-amber-500/30"
                         : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
                     )}
                   >
@@ -269,7 +209,7 @@ export default function TopBar({
               type="button"
               variant="ghost"
               size="icon"
-              className="glass-chip rounded-lg text-slate-400 hover:bg-white/5 hover:text-blue-400"
+              className="glass-chip h-9 w-9 rounded-lg text-slate-400 hover:bg-white/5 hover:text-amber-400"
               onClick={onToggleRight}
             >
               {rightOpen ? (
@@ -283,49 +223,7 @@ export default function TopBar({
             {rightOpen ? "Hide right panel" : "Show right panel"}
           </TooltipContent>
         </Tooltip>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="glass-chip flex items-center gap-2 rounded-lg py-1 pl-1 pr-2.5 transition-all hover:bg-white/5"
-            >
-              <Avatar className="size-7">
-                <AvatarFallback className="bg-gradient-to-br from-blue-600 to-sky-400 text-[11px] font-bold text-white">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="hidden text-left leading-tight sm:block">
-                <p className="max-w-[110px] truncate text-xs font-semibold text-foreground">
-                  {user?.name?.trim() || (user?.email ?? "Trader")}
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  {user?.role === "admin" ? "Administrator" : "Trader"}
-                </p>
-              </div>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="glass-strong w-60">
-            <DropdownMenuLabel className="flex flex-col gap-0.5">
-              <span className="text-sm font-semibold">
-                {user?.name?.trim() || "Trader"}
-              </span>
-              <span className="text-xs font-normal text-muted-foreground">
-                {user?.email ?? "Guest session"}
-              </span>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={handleSignOut} className="text-rose-400 focus:text-rose-400">
-              <LogOut className="size-4" />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
-
-      <span className="sr-only">
-        {activeSymbol ? `${activeSymbol.id} — ${activeSymbol.name}` : "No symbol"}
-      </span>
     </header>
   );
 }

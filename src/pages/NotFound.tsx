@@ -28,7 +28,7 @@ export default function NotFound() {
             asChild
             className="mt-6 rounded-xl bg-blue-600 shadow-md shadow-blue-600/30 hover:bg-blue-500"
           >
-            <Link to="/">Back to Vantage</Link>
+            <Link to="/">Back to the Academy</Link>
           </Button>
         </div>
       </motion.div>

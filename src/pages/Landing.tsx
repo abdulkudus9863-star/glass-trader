@@ -194,15 +194,15 @@ export default function Landing() {
       <header className="sticky top-0 z-40 border-b border-white/5 bg-[#0d1017]/75 backdrop-blur-xl">
         <nav className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-sky-400 text-white shadow-md shadow-blue-600/30">
-              <CandlestickChart className="size-4" />
+            <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-yellow-600 text-[#0b101b] shadow-md shadow-amber-500/25">
+              <CandlestickChart className="size-4" strokeWidth={2.4} />
             </div>
             <div className="leading-tight">
-              <p className="text-sm font-bold tracking-tight text-foreground">
-                Vantage
+              <p className="text-sm font-bold tracking-tight text-amber-400">
+                Abdul Kudus
               </p>
-              <p className="text-[10px] text-muted-foreground">
-                Professional trading terminal
+              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                Trading Academy
               </p>
             </div>
           </div>
@@ -423,8 +423,8 @@ export default function Landing() {
             Everything a chart needs. Nothing it doesn&apos;t.
           </h2>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Vantage focuses on the fundamentals: a fast, always-on charting
-            surface with the tools traders reach for daily.
+            The terminal focuses on the fundamentals: a fast, always-on
+            charting surface with the tools traders reach for daily.
           </p>
         </motion.div>
 
@@ -516,12 +516,12 @@ export default function Landing() {
       <footer className="relative z-10 border-t border-white/5 bg-[#0d1017]/60 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-sky-400 text-white">
-              <CandlestickChart className="size-3.5" />
+            <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-yellow-600 text-[#0b101b]">
+              <CandlestickChart className="size-3.5" strokeWidth={2.4} />
             </div>
-            <p className="text-sm font-bold text-foreground">Vantage</p>
+            <p className="text-sm font-bold text-amber-400">Abdul Kudus</p>
             <span className="text-xs text-muted-foreground">
-              · professional trading terminal
+              · trading academy — professional terminal
             </span>
           </div>
           <p className="text-xs text-muted-foreground">

@@ -717,9 +717,9 @@ export default function CustomChart({
       vertAlign: "center",
       lines: [
         {
-          text: "Vantage",
-          color: "rgba(41,98,255,0.08)",
-          fontSize: 46,
+          text: "Abdul Kudus Trading Academy",
+          color: "rgba(212,175,55,0.07)",
+          fontSize: 30,
           fontFamily: "system-ui",
         },
       ],

@@ -39,6 +39,7 @@ export interface MarketSymbol {
 
 export const SYMBOLS: MarketSymbol[] = [
   { id: "BTCUSDT", name: "Bitcoin", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 67400, vol24h: 3.2 },
+  { id: "BTCUSD", name: "Bitcoin / US Dollar", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 67400, vol24h: 3.2 },
   { id: "ETHUSDT", name: "Ethereum", market: "crypto", exchange: "Binance", binance: "ETHUSDT", decimals: 2, basePrice: 3520, vol24h: 4.1 },
   { id: "SOLUSDT", name: "Solana", market: "crypto", exchange: "Binance", binance: "SOLUSDT", decimals: 2, basePrice: 178.5, vol24h: 5.6 },
   { id: "BNBUSDT", name: "BNB", market: "crypto", exchange: "Binance", binance: "BNBUSDT", decimals: 2, basePrice: 585, vol24h: 3.4 },

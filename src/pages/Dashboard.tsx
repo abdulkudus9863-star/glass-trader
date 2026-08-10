@@ -5,8 +5,15 @@ import ChartCanvas, { type EngineMode } from "@/components/chart/ChartCanvas";
 import { type ChartType, type ToolId } from "@/components/chart/CustomChart";
 import DrawingToolbar from "@/components/chart/DrawingToolbar";
 import IndicatorModal from "@/components/chart/IndicatorModal";
+import AppHeader, { type AppTab } from "@/components/layout/AppHeader";
+import MobileNav from "@/components/layout/MobileNav";
 import TopBar, { type LayoutId } from "@/components/layout/TopBar";
 import RightPanel from "@/components/workspace/RightPanel";
+import CommunityChat from "@/components/workspace/CommunityChat";
+import Academy from "@/components/workspace/Academy";
+import AdminPortal from "@/components/workspace/AdminPortal";
+import PositionCalculator from "@/components/workspace/PositionCalculator";
+import TradeJournal from "@/components/workspace/TradeJournal";
 import { findSymbol, type TimeframeId } from "@/lib/market";
 import { cn } from "@/lib/utils";
 
@@ -17,10 +24,10 @@ interface PaneState {
 }
 
 const DEFAULT_PANES: PaneState[] = [
-  { id: "p1", symbolId: "BTCUSDT", intervalId: "1H" },
-  { id: "p2", symbolId: "ETHUSDT", intervalId: "1H" },
+  { id: "p1", symbolId: "XAUUSD", intervalId: "1H" },
+  { id: "p2", symbolId: "BTCUSDT", intervalId: "1H" },
   { id: "p3", symbolId: "EURUSD", intervalId: "15m" },
-  { id: "p4", symbolId: "XAUUSD", intervalId: "15m" },
+  { id: "p4", symbolId: "GBPUSD", intervalId: "15m" },
 ];
 
 const GRID_CLASSES: Record<LayoutId, string> = {
@@ -70,8 +77,8 @@ function PaneCard({
       className={cn(
         "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl glass transition-all",
         active
-          ? "shadow-lg shadow-blue-600/10 ring-2 ring-blue-400/70"
-          : "hover:ring-1 hover:ring-blue-300/60",
+          ? "shadow-lg shadow-black/40 ring-2 ring-amber-400/70"
+          : "hover:ring-1 hover:ring-amber-300/40",
       )}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-1.5">
@@ -94,7 +101,7 @@ function PaneCard({
         </div>
         <div className="flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
           {active && (
-            <span className="hidden rounded-full bg-emerald-500/10 px-1.5 py-px font-semibold text-emerald-600 sm:inline">
+            <span className="hidden rounded-full bg-emerald-500/10 px-1.5 py-px font-semibold text-emerald-400 sm:inline">
               active
             </span>
           )}
@@ -102,7 +109,7 @@ function PaneCard({
             {pane.intervalId}
           </span>
           {indicatorList.length > 0 && (
-            <span className="rounded-full bg-blue-600/15 px-1.5 py-px font-semibold text-blue-400">
+            <span className="rounded-full bg-amber-400/15 px-1.5 py-px font-semibold text-amber-400">
               {indicatorList.length}
             </span>
           )}
@@ -129,6 +136,7 @@ function PaneCard({
 }
 
 export default function Dashboard() {
+  const [tab, setTab] = useState<AppTab>("chart");
   const [layout, setLayout] = useState<LayoutId>("1x1");
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
   const [activeId, setActiveId] = useState("p1");
@@ -159,6 +167,11 @@ export default function Dashboard() {
     );
   };
 
+  const handleSelectSymbol = (id: string) => {
+    updateActivePane({ symbolId: id });
+    setTab("chart");
+  };
+
   const toggleIndicator = (id: string) => {
     setIndicators((prev) => {
       const next = new Set(prev);
@@ -169,53 +182,125 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      <TopBar
+    <div className="flex h-dvh flex-col overflow-hidden bg-[#070B14] text-foreground">
+      <AppHeader
+        activeTab={tab}
+        onTabChange={setTab}
         symbolId={activePane.symbolId}
-        onSymbolSelect={(id) => updateActivePane({ symbolId: id })}
-        intervalId={activePane.intervalId}
-        onIntervalChange={(id) => updateActivePane({ intervalId: id })}
-        chartType={chartType}
-        onChartTypeChange={setChartType}
+        onSymbolSelect={handleSelectSymbol}
         indicatorCount={indicatorList.length}
         onOpenIndicators={() => setIndicatorModalOpen(true)}
-        engineMode={engineMode}
-        onEngineModeChange={setEngineMode}
-        layout={layout}
-        onLayoutChange={setLayout}
-        rightOpen={rightOpen}
-        onToggleRight={() => setRightOpen((o) => !o)}
       />
 
-      <div className="flex min-h-0 flex-1 gap-2.5 p-2.5">
-        <div className="hidden shrink-0 md:block">
-          <DrawingToolbar tool={tool} onToolChange={setTool} />
+      {tab === "chart" && (
+        <TopBar
+          symbolId={activePane.symbolId}
+          onSymbolSelect={(id) => updateActivePane({ symbolId: id })}
+          intervalId={activePane.intervalId}
+          onIntervalChange={(id) => updateActivePane({ intervalId: id })}
+          chartType={chartType}
+          onChartTypeChange={setChartType}
+          engineMode={engineMode}
+          onEngineModeChange={setEngineMode}
+          layout={layout}
+          onLayoutChange={setLayout}
+          rightOpen={rightOpen}
+          onToggleRight={() => setRightOpen((o) => !o)}
+        />
+      )}
+
+      {/* Content — every tab stays mounted so the chart never loses state */}
+      <div className="relative min-h-0 flex-1">
+        {/* Chart */}
+        <div
+          className={cn(
+            "absolute inset-0 flex gap-2.5 p-2.5",
+            tab !== "chart" && "hidden",
+          )}
+        >
+          <div className="hidden shrink-0 md:block">
+            <DrawingToolbar tool={tool} onToolChange={setTool} />
+          </div>
+
+          <main className={cn("min-h-0 min-w-0 flex-1", GRID_CLASSES[layout])}>
+            {visiblePanes.map((pane) => (
+              <PaneCard
+                key={pane.id}
+                pane={pane}
+                active={pane.id === activeId}
+                chartType={chartType}
+                indicatorList={indicatorList}
+                tool={tool}
+                engineMode={engineMode}
+                onActivate={() => setActiveId(pane.id)}
+                onToolConsumed={() => setTool(null)}
+              />
+            ))}
+          </main>
+
+          <AnimatePresence>
+            {rightOpen && (
+              <RightPanel
+                activeSymbolId={activePane.symbolId}
+                onSelectSymbol={handleSelectSymbol}
+              />
+            )}
+          </AnimatePresence>
         </div>
 
-        <main className={cn("min-h-0 min-w-0 flex-1", GRID_CLASSES[layout])}>
-          {visiblePanes.map((pane) => (
-            <PaneCard
-              key={pane.id}
-              pane={pane}
-              active={pane.id === activeId}
-              chartType={chartType}
-              indicatorList={indicatorList}
-              tool={tool}
-              engineMode={engineMode}
-              onActivate={() => setActiveId(pane.id)}
-              onToolConsumed={() => setTool(null)}
-            />
-          ))}
-        </main>
-
-        <AnimatePresence>
-          {rightOpen && (
-            <RightPanel
-              activeSymbolId={activePane.symbolId}
-              onSelectSymbol={(id) => updateActivePane({ symbolId: id })}
-            />
+        {/* Academy */}
+        <div
+          className={cn(
+            "absolute inset-0 overflow-y-auto",
+            tab !== "academy" && "hidden",
           )}
-        </AnimatePresence>
+        >
+          <Academy />
+        </div>
+
+        {/* Position calculator */}
+        <div
+          className={cn(
+            "absolute inset-0 overflow-y-auto",
+            tab !== "calculator" && "hidden",
+          )}
+        >
+          <PositionCalculator />
+        </div>
+
+        {/* Trade journal */}
+        <div
+          className={cn(
+            "absolute inset-0 overflow-y-auto",
+            tab !== "journal" && "hidden",
+          )}
+        >
+          <TradeJournal />
+        </div>
+
+        {/* Community chat */}
+        <div
+          className={cn(
+            "absolute inset-0 overflow-y-auto",
+            tab !== "chat" && "hidden",
+          )}
+        >
+          <div className="flex h-full flex-col p-4">
+            <div className="glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
+              <CommunityChat />
+            </div>
+          </div>
+        </div>
+
+        {/* Admin portal */}
+        <div
+          className={cn(
+            "absolute inset-0 overflow-y-auto",
+            tab !== "admin" && "hidden",
+          )}
+        >
+          <AdminPortal />
+        </div>
       </div>
 
       <IndicatorModal
@@ -224,6 +309,8 @@ export default function Dashboard() {
         indicators={indicators}
         onToggle={toggleIndicator}
       />
+
+      <MobileNav activeTab={tab} onTabChange={setTab} />
     </div>
   );
 }
