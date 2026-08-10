@@ -22,11 +22,11 @@ import {
 import { cn } from "@/lib/utils";
 
 const CATEGORY_STYLE: Record<IndicatorCategory, string> = {
-  Trend: "bg-indigo-500/10 text-indigo-700 border-indigo-500/25",
-  Momentum: "bg-violet-500/10 text-violet-700 border-violet-500/25",
-  Volume: "bg-sky-500/10 text-sky-700 border-sky-500/25",
-  Volatility: "bg-amber-500/10 text-amber-700 border-amber-500/25",
-  SMC: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25",
+  Trend: "bg-blue-500/10 text-blue-400 border-blue-500/25",
+  Momentum: "bg-violet-500/10 text-violet-400 border-violet-500/25",
+  Volume: "bg-sky-500/10 text-sky-400 border-sky-500/25",
+  Volatility: "bg-amber-500/10 text-amber-400 border-amber-500/25",
+  SMC: "bg-emerald-500/10 text-emerald-400 border-emerald-500/25",
 };
 
 interface IndicatorModalProps {
@@ -64,7 +64,7 @@ export default function IndicatorModal({
       <DialogContent className="glass-strong max-w-md gap-0 p-0 sm:max-w-md">
         <DialogHeader className="border-b border-border/60 px-5 pb-4 pt-5 text-left">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
               <FunctionSquare className="size-4" />
             </div>
             <div>
@@ -105,7 +105,7 @@ export default function IndicatorModal({
                       onClick={() => onToggle(ind.id)}
                       className={cn(
                         "flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-accent/70",
-                        on && "bg-indigo-500/5",
+                        on && "bg-blue-500/10",
                       )}
                     >
                       <span

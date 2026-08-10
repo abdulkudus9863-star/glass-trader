@@ -42,7 +42,7 @@ export default function CommunityChat() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Community
           </p>
           <p className="text-[10px] text-muted-foreground">
@@ -80,19 +80,19 @@ export default function CommunityChat() {
                 className={`flex items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}
               >
                 <Avatar className="mt-0.5 size-6 shrink-0">
-                  <AvatarFallback className="bg-gradient-to-br from-indigo-400 to-sky-400 text-[9px] font-bold text-white">
+                  <AvatarFallback className="bg-gradient-to-br from-blue-600 to-sky-400 text-[9px] font-bold text-white">
                     {m.authorName.slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <div
                   className={`max-w-[80%] rounded-xl px-2.5 py-1.5 ${
                     mine
-                      ? "rounded-tr-sm bg-indigo-500 text-white"
-                      : "rounded-tl-sm bg-slate-100 text-slate-800"
+                      ? "rounded-tr-sm bg-blue-600 text-white"
+                      : "rounded-tl-sm bg-white/10 text-slate-200"
                   }`}
                 >
                   {!mine && (
-                    <p className="mb-0.5 text-[10px] font-bold text-indigo-600">
+                    <p className="mb-0.5 text-[10px] font-bold text-blue-400">
                       {m.authorName}
                     </p>
                   )}
@@ -101,7 +101,7 @@ export default function CommunityChat() {
                   </p>
                   <p
                     className={`mt-0.5 text-right text-[9px] ${
-                      mine ? "text-indigo-200" : "text-muted-foreground"
+                      mine ? "text-blue-200" : "text-muted-foreground"
                     }`}
                   >
                     {new Date(m._creationTime).toLocaleTimeString([], {
@@ -125,14 +125,14 @@ export default function CommunityChat() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Message the room…"
-          className="h-9 rounded-lg bg-white/70"
+          className="h-9 rounded-lg bg-white/5"
           maxLength={500}
         />
         <Button
           type="submit"
           size="icon"
           disabled={!text.trim() || sending}
-          className="size-9 shrink-0 rounded-lg bg-indigo-500 hover:bg-indigo-400"
+          className="size-9 shrink-0 rounded-lg bg-blue-600 hover:bg-blue-500"
         >
           <SendHorizonal className="size-4" />
         </Button>

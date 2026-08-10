@@ -1,11 +1,11 @@
 {
-  "name": "freebuff.com application",
-  "short_name": "freebuff.com",
-  "description": "freebuff.com application",
+  "name": "Vantage — Professional Trading Terminal",
+  "short_name": "Vantage",
+  "description": "Real-time multi-asset charts, a complete indicator library and invitation-gated proprietary studies.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "background_color": "#131722",
+  "theme_color": "#131722",
   "icons": [
     {
       "src": "/logo.png",

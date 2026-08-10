@@ -42,74 +42,75 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* CHANGE VALUES FOR THEME — Light glassmorphism, restrained cool palette */
+/* CHANGE VALUES FOR THEME — TradingView-inspired dark terminal (#131722) */
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.968 0.012 252);
-  --foreground: oklch(0.27 0.045 255);
-  --card: oklch(0.999 0 0);
-  --card-foreground: oklch(0.27 0.045 255);
-  --popover: oklch(0.999 0 0);
-  --popover-foreground: oklch(0.27 0.045 255);
-  --primary: oklch(0.545 0.19 262);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.942 0.02 255);
-  --secondary-foreground: oklch(0.32 0.04 255);
-  --muted: oklch(0.945 0.018 255);
-  --muted-foreground: oklch(0.545 0.03 255);
-  --accent: oklch(0.92 0.028 255);
-  --accent-foreground: oklch(0.3 0.04 255);
-  --destructive: oklch(0.61 0.19 23);
-  --border: oklch(0.885 0.016 255);
-  --input: oklch(0.885 0.016 255);
-  --ring: oklch(0.545 0.19 262);
-  --chart-1: oklch(0.545 0.19 262);
-  --chart-2: oklch(0.62 0.13 200);
-  --chart-3: oklch(0.72 0.12 170);
-  --chart-4: oklch(0.76 0.15 60);
-  --chart-5: oklch(0.6 0.15 330);
-  --sidebar: oklch(0.97 0.012 252);
-  --sidebar-foreground: oklch(0.27 0.045 255);
-  --sidebar-primary: oklch(0.545 0.19 262);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.92 0.028 255);
-  --sidebar-accent-foreground: oklch(0.3 0.04 255);
-  --sidebar-border: oklch(0.885 0.016 255);
-  --sidebar-ring: oklch(0.545 0.19 262);
+  --radius: 0.625rem;
+  --background: #131722;
+  --foreground: #d1d4dc;
+  --card: #1e222d;
+  --card-foreground: #d1d4dc;
+  --popover: #1e222d;
+  --popover-foreground: #d1d4dc;
+  --primary: #2962ff;
+  --primary-foreground: #ffffff;
+  --secondary: #2a2e39;
+  --secondary-foreground: #d1d4dc;
+  --muted: #2a2e39;
+  --muted-foreground: #787b86;
+  --accent: #363a45;
+  --accent-foreground: #d1d4dc;
+  --destructive: #f23645;
+  --border: #2a2e39;
+  --input: #2a2e39;
+  --ring: #2962ff;
+  --chart-1: #2962ff;
+  --chart-2: #089981;
+  --chart-3: #f23645;
+  --chart-4: #ff9800;
+  --chart-5: #787b86;
+  --sidebar: #131722;
+  --sidebar-foreground: #d1d4dc;
+  --sidebar-primary: #2962ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2a2e39;
+  --sidebar-accent-foreground: #d1d4dc;
+  --sidebar-border: #2a2e39;
+  --sidebar-ring: #2962ff;
 }
 
+/* Keep the .dark variant in lockstep with the default terminal theme. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #131722;
+  --foreground: #d1d4dc;
+  --card: #1e222d;
+  --card-foreground: #d1d4dc;
+  --popover: #1e222d;
+  --popover-foreground: #d1d4dc;
+  --primary: #2962ff;
+  --primary-foreground: #ffffff;
+  --secondary: #2a2e39;
+  --secondary-foreground: #d1d4dc;
+  --muted: #2a2e39;
+  --muted-foreground: #787b86;
+  --accent: #363a45;
+  --accent-foreground: #d1d4dc;
+  --destructive: #f23645;
+  --border: #2a2e39;
+  --input: #2a2e39;
+  --ring: #2962ff;
+  --chart-1: #2962ff;
+  --chart-2: #089981;
+  --chart-3: #f23645;
+  --chart-4: #ff9800;
+  --chart-5: #787b86;
+  --sidebar: #131722;
+  --sidebar-foreground: #d1d4dc;
+  --sidebar-primary: #2962ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2a2e39;
+  --sidebar-accent-foreground: #d1d4dc;
+  --sidebar-border: #2a2e39;
+  --sidebar-ring: #2962ff;
 }
 
 @layer base {
@@ -129,9 +130,9 @@
     cursor: pointer;
   }
   ::selection {
-    background: oklch(0.545 0.19 262 / 0.22);
+    background: rgb(41 98 255 / 0.32);
   }
-  /* slim cool scrollbars */
+  /* slim dark scrollbars */
   *::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -140,55 +141,55 @@
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background: oklch(0.82 0.02 255);
+    background: #2a2e39;
     border-radius: 999px;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.72 0.03 255);
+    background: #3a3f4b;
   }
 }
 
 /* ==========================================================================
-   Light glassmorphism surfaces
+   Dark terminal glass surfaces
    ========================================================================== */
 @layer components {
   .glass {
     background: linear-gradient(
-      135deg,
-      oklch(1 0 0 / 0.72),
-      oklch(0.98 0.012 255 / 0.58)
+      150deg,
+      rgb(41 48 63 / 0.72),
+      rgb(26 30 41 / 0.66)
     );
-    -webkit-backdrop-filter: blur(18px) saturate(1.5);
-    backdrop-filter: blur(18px) saturate(1.5);
-    border: 1px solid oklch(1 0 0 / 0.85);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+    backdrop-filter: blur(18px) saturate(1.25);
+    border: 1px solid rgb(255 255 255 / 0.07);
     box-shadow:
-      0 1px 0 oklch(1 0 0 / 0.9) inset,
-      0 12px 40px -12px oklch(0.35 0.05 255 / 0.18);
+      0 1px 0 rgb(255 255 255 / 0.04) inset,
+      0 16px 44px -16px rgb(0 0 0 / 0.6);
   }
 
   .glass-strong {
     background: linear-gradient(
       160deg,
-      oklch(1 0 0 / 0.86),
-      oklch(0.972 0.016 255 / 0.74)
+      rgb(41 48 63 / 0.9),
+      rgb(22 26 36 / 0.88)
     );
-    -webkit-backdrop-filter: blur(26px) saturate(1.6);
-    backdrop-filter: blur(26px) saturate(1.6);
-    border: 1px solid oklch(1 0 0 / 0.9);
+    -webkit-backdrop-filter: blur(26px) saturate(1.3);
+    backdrop-filter: blur(26px) saturate(1.3);
+    border: 1px solid rgb(255 255 255 / 0.09);
     box-shadow:
-      0 1px 0 oklch(1 0 0 / 0.95) inset,
-      0 24px 70px -20px oklch(0.35 0.06 260 / 0.28);
+      0 1px 0 rgb(255 255 255 / 0.05) inset,
+      0 28px 80px -24px rgb(0 0 0 / 0.75);
   }
 
   .glass-chip {
-    background: oklch(1 0 0 / 0.55);
-    -webkit-backdrop-filter: blur(10px) saturate(1.4);
-    backdrop-filter: blur(10px) saturate(1.4);
-    border: 1px solid oklch(1 0 0 / 0.8);
-    box-shadow: 0 1px 0 oklch(1 0 0 / 0.9) inset;
+    background: rgb(28 32 43 / 0.78);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    backdrop-filter: blur(10px) saturate(1.2);
+    border: 1px solid rgb(255 255 255 / 0.07);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
   }
 
-  /* Animated cool aurora backdrop for marketing/auth pages */
+  /* Restrained deep-navy backdrop for marketing/auth pages */
   .bg-aurora {
     position: fixed;
     inset: 0;
@@ -196,36 +197,36 @@
     overflow: hidden;
     background:
       radial-gradient(
-        60rem 40rem at 12% -10%,
-        oklch(0.9 0.06 255 / 0.9),
+        60rem 42rem at 12% -10%,
+        rgb(41 98 255 / 0.13),
         transparent 60%
       ),
       radial-gradient(
-        50rem 36rem at 110% 8%,
-        oklch(0.9 0.08 200 / 0.75),
+        50rem 36rem at 110% 10%,
+        rgb(8 153 129 / 0.07),
         transparent 60%
       ),
       radial-gradient(
         46rem 40rem at 50% 120%,
-        oklch(0.92 0.05 280 / 0.55),
+        rgb(99 102 241 / 0.06),
         transparent 65%
       ),
-      linear-gradient(180deg, oklch(0.985 0.01 250), oklch(0.955 0.018 252));
+      linear-gradient(180deg, #131722 0%, #0d1017 100%);
   }
   .bg-aurora::before,
   .bg-aurora::after {
     content: "";
     position: absolute;
     border-radius: 9999px;
-    filter: blur(70px);
-    opacity: 0.55;
+    filter: blur(80px);
+    opacity: 0.4;
   }
   .bg-aurora::before {
     width: 34rem;
     height: 34rem;
     left: -8rem;
     top: 22%;
-    background: oklch(0.85 0.09 235 / 0.5);
+    background: rgb(41 98 255 / 0.35);
     animation: aurora-drift 22s ease-in-out infinite alternate;
   }
   .bg-aurora::after {
@@ -233,14 +234,14 @@
     height: 28rem;
     right: -6rem;
     bottom: 8%;
-    background: oklch(0.85 0.09 190 / 0.45);
+    background: rgb(8 153 129 / 0.22);
     animation: aurora-drift 26s ease-in-out infinite alternate-reverse;
   }
 
   .grid-overlay {
     background-image:
-      linear-gradient(oklch(0.6 0.04 255 / 0.07) 1px, transparent 1px),
-      linear-gradient(90deg, oklch(0.6 0.04 255 / 0.07) 1px, transparent 1px);
+      linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px);
     background-size: 44px 44px;
     mask-image: radial-gradient(
       ellipse 90% 70% at 50% 30%,

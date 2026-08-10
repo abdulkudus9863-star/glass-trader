@@ -47,7 +47,7 @@ export default function Watchlist({
     <div className="flex flex-col">
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Watchlist
           </p>
           <p className="text-[10px] text-muted-foreground">
@@ -72,7 +72,7 @@ export default function Watchlist({
               onClick={() => onSelectSymbol(id)}
               className={cn(
                 "group flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/60",
-                activeSymbolId === id && "bg-indigo-500/8",
+                activeSymbolId === id && "bg-blue-500/10",
               )}
             >
               <div className="flex min-w-0 flex-1 flex-col">

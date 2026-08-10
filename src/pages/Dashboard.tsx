@@ -30,11 +30,11 @@ const GRID_CLASSES: Record<LayoutId, string> = {
 };
 
 const MARKET_CHIP: Record<string, string> = {
-  crypto: "bg-amber-500/10 text-amber-700 border-amber-500/25",
-  forex: "bg-sky-500/10 text-sky-700 border-sky-500/25",
-  metals: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25",
-  indices: "bg-violet-500/10 text-violet-700 border-violet-500/25",
-  stocks: "bg-rose-500/10 text-rose-700 border-rose-500/25",
+  crypto: "bg-amber-500/10 text-amber-400 border-amber-500/25",
+  forex: "bg-sky-500/10 text-sky-400 border-sky-500/25",
+  metals: "bg-emerald-500/10 text-emerald-400 border-emerald-500/25",
+  indices: "bg-violet-500/10 text-violet-400 border-violet-500/25",
+  stocks: "bg-rose-500/10 text-rose-400 border-rose-500/25",
 };
 
 interface PaneCardProps {
@@ -70,8 +70,8 @@ function PaneCard({
       className={cn(
         "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl glass transition-all",
         active
-          ? "shadow-lg shadow-indigo-500/10 ring-2 ring-indigo-400/70"
-          : "hover:ring-1 hover:ring-indigo-300/60",
+          ? "shadow-lg shadow-blue-600/10 ring-2 ring-blue-400/70"
+          : "hover:ring-1 hover:ring-blue-300/60",
       )}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-1.5">
@@ -98,11 +98,11 @@ function PaneCard({
               active
             </span>
           )}
-          <span className="rounded bg-white/60 px-1.5 py-px font-semibold text-slate-600">
+          <span className="rounded bg-white/5 px-1.5 py-px font-semibold text-slate-300">
             {pane.intervalId}
           </span>
           {indicatorList.length > 0 && (
-            <span className="rounded-full bg-indigo-500/10 px-1.5 py-px font-semibold text-indigo-600">
+            <span className="rounded-full bg-blue-600/15 px-1.5 py-px font-semibold text-blue-400">
               {indicatorList.length}
             </span>
           )}

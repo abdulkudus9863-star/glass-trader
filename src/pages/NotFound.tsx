@@ -14,21 +14,21 @@ export default function NotFound() {
         className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4"
       >
         <div className="glass-strong flex w-full max-w-md flex-col items-center rounded-2xl px-8 py-12 text-center">
-          <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-sky-400 text-white shadow-lg shadow-indigo-500/30">
+          <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-sky-400 text-white shadow-lg shadow-blue-600/30">
             <CandlestickChart className="size-6" />
           </div>
           <h1 className="mt-5 text-5xl font-extrabold tracking-tight text-foreground">
             404
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            This chart doesn&apos;t exist — the market you&apos;re looking for
-            isn&apos;t on this page.
+            This market isn&apos;t on any chart — the page you&apos;re looking
+            for doesn&apos;t exist.
           </p>
           <Button
             asChild
-            className="mt-6 rounded-xl bg-indigo-500 shadow-md shadow-indigo-500/30 hover:bg-indigo-400"
+            className="mt-6 rounded-xl bg-blue-600 shadow-md shadow-blue-600/30 hover:bg-blue-500"
           >
-            <Link to="/">Back to TradeDeck</Link>
+            <Link to="/">Back to Vantage</Link>
           </Button>
         </div>
       </motion.div>

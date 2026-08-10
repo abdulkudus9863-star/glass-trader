@@ -373,7 +373,7 @@ export default function CustomChart({
           d.id,
           main.createPriceLine({
             price: d.price,
-            color: "rgba(79,70,229,0.85)",
+            color: "rgba(41,98,255,0.85)",
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
@@ -381,7 +381,7 @@ export default function CustomChart({
         );
       } else if (d.kind === "trendline") {
         const s = chart.addSeries(LineSeries, {
-          color: "rgba(79,70,229,0.9)",
+          color: "rgba(41,98,255,0.9)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           priceLineVisible: false,
@@ -403,7 +403,7 @@ export default function CustomChart({
             main.createPriceLine({
               price: lo + (hi - lo) * lv,
               color:
-                i === 3 ? "rgba(245,158,11,0.95)" : "rgba(99,102,241,0.5)",
+                i === 3 ? "rgba(245,158,11,0.95)" : "rgba(41,98,255,0.55)",
               lineWidth: i === 3 ? 2 : 1,
               lineStyle: i === 3 ? LineStyle.Solid : LineStyle.Dotted,
               axisLabelVisible: i === 3,
@@ -568,7 +568,7 @@ export default function CustomChart({
         if (price != null) {
           if (!previewSeriesRef.current) {
             previewSeriesRef.current = chart.addSeries(LineSeries, {
-              color: "rgba(79,70,229,0.5)",
+              color: "rgba(41,98,255,0.5)",
               lineWidth: 1,
               lineStyle: LineStyle.Dashed,
               priceLineVisible: false,
@@ -672,32 +672,32 @@ export default function CustomChart({
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#64748b",
+        textColor: "#787b86",
         fontSize: 11,
         fontFamily: "inherit",
       },
       grid: {
-        vertLines: { color: "rgba(100,116,139,0.10)" },
-        horzLines: { color: "rgba(100,116,139,0.10)" },
+        vertLines: { color: "rgba(120,123,134,0.12)" },
+        horzLines: { color: "rgba(120,123,134,0.12)" },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: {
-          color: "rgba(79,70,229,0.30)",
+          color: "rgba(41,98,255,0.35)",
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: "#6366f1",
+          labelBackgroundColor: "#2962ff",
         },
         horzLine: {
-          color: "rgba(79,70,229,0.30)",
+          color: "rgba(41,98,255,0.35)",
           width: 1,
           style: LineStyle.Dashed,
-          labelBackgroundColor: "#6366f1",
+          labelBackgroundColor: "#2962ff",
         },
       },
-      rightPriceScale: { borderColor: "rgba(100,116,139,0.18)" },
+      rightPriceScale: { borderColor: "rgba(120,123,134,0.25)" },
       timeScale: {
-        borderColor: "rgba(100,116,139,0.18)",
+        borderColor: "rgba(120,123,134,0.25)",
         timeVisible: intradayRef.current,
         secondsVisible: false,
         rightOffset: 5,
@@ -717,8 +717,8 @@ export default function CustomChart({
       vertAlign: "center",
       lines: [
         {
-          text: "TradeDeck",
-          color: "rgba(99,102,241,0.06)",
+          text: "Vantage",
+          color: "rgba(41,98,255,0.08)",
           fontSize: 46,
           fontFamily: "system-ui",
         },
@@ -796,29 +796,29 @@ export default function CustomChart({
     <div ref={containerRef} className={cn("relative h-full w-full min-h-0", className)}>
       {/* OHLC readout */}
       <div className="pointer-events-none absolute left-3 top-2 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-medium tabular-nums">
-        <span className="font-semibold text-slate-700">
+        <span className="font-semibold text-slate-200">
           {symbolId}
-          <span className="ml-1.5 font-normal text-slate-400">
+          <span className="ml-1.5 font-normal text-slate-500">
             {formatTime(readout.time, intraday)}
           </span>
         </span>
-        <span className="text-slate-500">
-          O <span className="text-slate-700">{formatPrice(readout.open, decimals)}</span>
+        <span className="text-slate-400">
+          O <span className="text-slate-200">{formatPrice(readout.open, decimals)}</span>
         </span>
-        <span className="text-slate-500">
-          H <span className="text-emerald-600">{formatPrice(readout.high, decimals)}</span>
+        <span className="text-slate-400">
+          H <span className="text-emerald-400">{formatPrice(readout.high, decimals)}</span>
         </span>
-        <span className="text-slate-500">
-          L <span className="text-rose-600">{formatPrice(readout.low, decimals)}</span>
+        <span className="text-slate-400">
+          L <span className="text-rose-400">{formatPrice(readout.low, decimals)}</span>
         </span>
-        <span className="text-slate-500">
-          C <span className={up ? "text-emerald-600" : "text-rose-600"}>{formatPrice(readout.close, decimals)}</span>
+        <span className="text-slate-400">
+          C <span className={up ? "text-emerald-400" : "text-rose-400"}>{formatPrice(readout.close, decimals)}</span>
         </span>
-        <span className="text-slate-400">Vol {formatCompact(readout.volume)}</span>
+        <span className="text-slate-500">Vol {formatCompact(readout.volume)}</span>
         <span
           className={cn(
             "rounded px-1 py-px text-[10px] font-semibold",
-            up ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600",
+            up ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400",
           )}
         >
           {formatPercent(changePct)}
@@ -838,7 +838,7 @@ export default function CustomChart({
           style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
         >
           {r.label && (
-            <span className="absolute -top-3.5 left-0 text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+            <span className="absolute -top-3.5 left-0 text-[9px] font-semibold uppercase tracking-wider text-slate-400">
               {r.label}
             </span>
           )}
@@ -847,8 +847,8 @@ export default function CustomChart({
 
       {/* active drawing tool hint */}
       {tool && tool !== "eraser" && tool !== "clear" && (
-        <div className="glass-chip pointer-events-none absolute bottom-2.5 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium text-slate-600">
-          {TOOL_HINTS[tool]} · <span className="text-slate-400">Esc to exit</span>
+        <div className="glass-chip pointer-events-none absolute bottom-2.5 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium text-slate-300">
+          {TOOL_HINTS[tool]} · <span className="text-slate-500">Esc to exit</span>
         </div>
       )}
     </div>

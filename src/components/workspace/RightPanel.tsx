@@ -22,9 +22,9 @@ export default function RightPanel({
       transition={{ type: "spring", stiffness: 380, damping: 34 }}
       className="min-h-0 shrink-0 overflow-hidden"
     >
-      <div className="glass flex h-full w-[320px] flex-col border-l border-white/70">
+      <div className="glass flex h-full w-[320px] flex-col border-l border-white/10">
         <Tabs defaultValue="watchlist" className="flex h-full min-h-0 flex-col gap-0">
-          <TabsList className="mx-2.5 mt-2.5 h-9 w-auto justify-start gap-1 rounded-xl bg-slate-100/70 p-1">
+          <TabsList className="mx-2.5 mt-2.5 h-9 w-auto justify-start gap-1 rounded-xl bg-white/5 p-1">
             <TabsTrigger value="watchlist" className="h-7 gap-1 rounded-lg text-xs">
               <Star className="size-3.5" />
               Watchlist

@@ -116,23 +116,24 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       {/* Auth Content */}
       <div className="relative z-10 flex-1 flex items-center justify-center">
         <div className="flex items-center justify-center h-full flex-col">
-        <Card className="glass-strong min-w-[350px] pb-0 border-0 shadow-xl shadow-indigo-500/10">
+        <Card className="glass-strong min-w-[350px] pb-0 border-0 shadow-xl shadow-black/40">
           {step === "signIn" ? (
             <>
               <CardHeader className="text-center">
               <div className="flex justify-center">
                     <img
                       src={logo}
-                      alt="Lock Icon"
+                      alt="Vantage logo"
                       width={64}
                       height={64}
                       className="rounded-lg mb-4 mt-4 cursor-pointer"
                       onClick={() => navigate("/")}
                     />
                   </div>
-                <CardTitle className="text-xl">Get Started</CardTitle>
+                <CardTitle className="text-xl">Sign in to Vantage</CardTitle>
                 <CardDescription>
-                  Enter your email to log in or sign up
+                  Enter your email and we&apos;ll send a one-time code. New
+                  addresses create an account automatically.
                 </CardDescription>
               </CardHeader>
               <form onSubmit={handleEmailSubmit}>
@@ -145,7 +146,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         name="email"
                         placeholder="name@example.com"
                         type="email"
-                        className="pl-9"
+                        className="pl-9 bg-white/[0.03]"
                         disabled={isLoading}
                         required
                       />
@@ -164,16 +165,16 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     </Button>
                   </div>
                   {error && (
-                    <p className="mt-2 text-sm text-red-500">{error}</p>
+                    <p className="mt-2 text-sm text-red-400">{error}</p>
                   )}
                   
                   <div className="mt-4">
                     <div className="relative">
                       <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t" />
+                        <span className="w-full border-t border-white/5" />
                       </div>
                       <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-background px-2 text-muted-foreground">
+                        <span className="bg-card px-2 text-muted-foreground">
                           Or
                         </span>
                       </div>
@@ -182,12 +183,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     <Button
                       type="button"
                       variant="outline"
-                      className="w-full mt-4"
+                      className="w-full mt-4 bg-white/[0.03]"
                       onClick={handleGuestLogin}
                       disabled={isLoading}
                     >
                       <UserX className="mr-2 h-4 w-4" />
-                      Continue as Guest
+                      Continue as guest
                     </Button>
                   </div>
                 </CardContent>
@@ -196,9 +197,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           ) : (
             <>
               <CardHeader className="text-center mt-4">
-                <CardTitle>Check your email</CardTitle>
+                <CardTitle>Enter your code</CardTitle>
                 <CardDescription>
-                  We've sent a code to {step.email}
+                  We sent a six-digit code to {step.email}
                 </CardDescription>
               </CardHeader>
               <form onSubmit={handleOtpSubmit}>
@@ -230,12 +231,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     </InputOTP>
                   </div>
                   {error && (
-                    <p className="mt-2 text-sm text-red-500 text-center">
+                    <p className="mt-2 text-sm text-red-400 text-center">
                       {error}
                     </p>
                   )}
                   <p className="text-sm text-muted-foreground text-center mt-4">
-                    Didn't receive a code?{" "}
+                    Didn&apos;t receive a code?{" "}
                     <Button
                       variant="link"
                       className="p-0 h-auto"
@@ -277,7 +278,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
             </>
           )}
 
-          <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-slate-100/60 border-t border-white/60 rounded-b-lg">
+          <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-white/[0.03] border-t border-white/5 rounded-b-lg">
             Secured by{" "}
             <a
               href="https://freebuff.com"

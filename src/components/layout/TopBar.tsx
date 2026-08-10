@@ -109,17 +109,17 @@ export default function TopBar({
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border/60 px-3 py-2">
       <div className="glass-chip flex items-center gap-2.5 rounded-xl px-2.5 py-1.5">
-        <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-sky-400 text-white shadow-md shadow-indigo-500/30">
+        <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-sky-400 text-white shadow-md shadow-blue-600/30">
           <CandlestickChart className="size-4" />
         </div>
         <div className="hidden leading-tight lg:block">
           <p className="text-[13px] font-bold tracking-tight text-foreground">
-            TradeDeck
+            Vantage
           </p>
-          <p className="text-[10px] text-muted-foreground">Trading terminal</p>
+          <p className="text-[10px] text-muted-foreground">Professional terminal</p>
         </div>
         {user?.role === "admin" && (
-          <Badge className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-700">
+          <Badge className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-400">
             Admin
           </Badge>
         )}
@@ -137,8 +137,8 @@ export default function TopBar({
               className={cn(
                 "rounded-md px-2 py-1 text-xs font-semibold transition-all",
                 tf.id === intervalId
-                  ? "bg-indigo-500 text-white shadow-sm shadow-indigo-500/40"
-                  : "text-slate-500 hover:bg-white/70 hover:text-slate-800",
+                  ? "bg-blue-600 text-white shadow-sm shadow-blue-600/40"
+                  : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
               )}
             >
               {tf.label}
@@ -150,12 +150,12 @@ export default function TopBar({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-700 transition-all hover:bg-white/80"
+              className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
             >
               {(() => {
                 const t = CHART_TYPES.find((c) => c.id === chartType);
                 const Icon = t?.icon ?? CandlestickChart;
-                return <Icon className="size-4 text-indigo-600" />;
+                return <Icon className="size-4 text-blue-400" />;
               })()}
               <span className="hidden sm:inline">
                 {CHART_TYPES.find((c) => c.id === chartType)?.label}
@@ -174,7 +174,7 @@ export default function TopBar({
                 >
                   <Icon className="size-4 text-slate-500" />
                   <span className="flex-1">{t.label}</span>
-                  {chartType === t.id && <Check className="size-4 text-indigo-600" />}
+                  {chartType === t.id && <Check className="size-4 text-blue-400" />}
                 </DropdownMenuItem>
               );
             })}
@@ -184,12 +184,12 @@ export default function TopBar({
         <button
           type="button"
           onClick={onOpenIndicators}
-          className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-700 transition-all hover:bg-white/80"
+          className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
         >
-          <FunctionSquare className="size-4 text-indigo-600" />
+          <FunctionSquare className="size-4 text-blue-400" />
           <span className="hidden sm:inline">Indicators</span>
           {indicatorCount > 0 && (
-            <span className="rounded-full bg-indigo-500 px-1.5 py-px text-[10px] font-bold text-white">
+            <span className="rounded-full bg-blue-600 px-1.5 py-px text-[10px] font-bold text-white">
               {indicatorCount}
             </span>
           )}
@@ -199,9 +199,9 @@ export default function TopBar({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-700 transition-all hover:bg-white/80"
+              className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
             >
-              <Cpu className="size-4 text-indigo-600" />
+              <Cpu className="size-4 text-blue-400" />
               <span className="hidden md:inline">Engine</span>
               <span className="text-[10px] font-bold uppercase text-slate-400">
                 {engineMode}
@@ -250,8 +250,8 @@ export default function TopBar({
                     className={cn(
                       "flex size-7 items-center justify-center rounded-md transition-all",
                       layout === l.id
-                        ? "bg-indigo-500 text-white shadow-sm shadow-indigo-500/40"
-                        : "text-slate-500 hover:bg-white/70 hover:text-slate-800",
+                        ? "bg-blue-600 text-white shadow-sm shadow-blue-600/40"
+                        : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
                     )}
                   >
                     <Icon className="size-3.5" />
@@ -269,7 +269,7 @@ export default function TopBar({
               type="button"
               variant="ghost"
               size="icon"
-              className="glass-chip rounded-lg text-slate-600 hover:bg-white/80 hover:text-indigo-600"
+              className="glass-chip rounded-lg text-slate-400 hover:bg-white/5 hover:text-blue-400"
               onClick={onToggleRight}
             >
               {rightOpen ? (
@@ -288,10 +288,10 @@ export default function TopBar({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="glass-chip flex items-center gap-2 rounded-lg py-1 pl-1 pr-2.5 transition-all hover:bg-white/80"
+              className="glass-chip flex items-center gap-2 rounded-lg py-1 pl-1 pr-2.5 transition-all hover:bg-white/5"
             >
               <Avatar className="size-7">
-                <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-sky-400 text-[11px] font-bold text-white">
+                <AvatarFallback className="bg-gradient-to-br from-blue-600 to-sky-400 text-[11px] font-bold text-white">
                   {initials}
                 </AvatarFallback>
               </Avatar>
@@ -315,7 +315,7 @@ export default function TopBar({
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={handleSignOut} className="text-rose-600 focus:text-rose-600">
+            <DropdownMenuItem onSelect={handleSignOut} className="text-rose-400 focus:text-rose-400">
               <LogOut className="size-4" />
               Sign out
             </DropdownMenuItem>

@@ -6,7 +6,7 @@ export default function MyAccess() {
   return (
     <div className="flex flex-col">
       <div className="border-b border-border/60 px-3 py-2.5">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
           My Access
         </p>
         <p className="text-[10px] text-muted-foreground">
@@ -61,7 +61,7 @@ export default function MyAccess() {
               </span>
               <Badge
                 variant="outline"
-                className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-700"
+                className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-400"
               >
                 Invite
               </Badge>
@@ -69,8 +69,8 @@ export default function MyAccess() {
           ))}
         </div>
 
-        <div className="mt-4 flex items-start gap-2 rounded-lg bg-indigo-500/5 p-2.5">
-          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-indigo-500" />
+        <div className="mt-4 flex items-start gap-2 rounded-lg bg-blue-500/10 p-2.5">
+          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-blue-400" />
           <p className="text-[10px] leading-4 text-muted-foreground">
             Proprietary indicators are granted by admins through the invitation
             system — you&apos;ll see unlocked tools here instantly when they

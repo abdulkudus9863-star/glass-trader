@@ -20,11 +20,11 @@ const MARKET_LABELS: Record<MarketType, string> = {
 };
 
 const MARKET_CHIP: Record<MarketType, string> = {
-  crypto: "bg-amber-500/10 text-amber-700 border-amber-500/25",
-  forex: "bg-sky-500/10 text-sky-700 border-sky-500/25",
-  metals: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25",
-  indices: "bg-violet-500/10 text-violet-700 border-violet-500/25",
-  stocks: "bg-rose-500/10 text-rose-700 border-rose-500/25",
+  crypto: "bg-amber-500/10 text-amber-400 border-amber-500/25",
+  forex: "bg-sky-500/10 text-sky-400 border-sky-500/25",
+  metals: "bg-emerald-500/10 text-emerald-400 border-emerald-500/25",
+  indices: "bg-violet-500/10 text-violet-400 border-violet-500/25",
+  stocks: "bg-rose-500/10 text-rose-400 border-rose-500/25",
 };
 
 interface SymbolSearchProps {
@@ -59,10 +59,10 @@ export default function SymbolSearch({ value, onSelect }: SymbolSearchProps) {
           type="button"
           className={cn(
             "glass-chip flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition-all",
-            "hover:bg-white/80 focus-visible:outline-2 focus-visible:outline-indigo-400",
+            "hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-blue-400",
           )}
         >
-          <span className="text-indigo-600">{active?.id ?? "—"}</span>
+          <span className="text-blue-400">{active?.id ?? "—"}</span>
           <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
             {active?.name}
           </span>
@@ -104,7 +104,7 @@ export default function SymbolSearch({ value, onSelect }: SymbolSearchProps) {
                     className={cn(
                       "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left transition-colors",
                       "hover:bg-accent",
-                      s.id === value && "bg-indigo-500/10",
+                      s.id === value && "bg-blue-500/10",
                     )}
                   >
                     <span className="flex min-w-0 flex-col">
