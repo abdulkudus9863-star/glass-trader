@@ -10,11 +10,15 @@ import {
   Waves,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useKlines } from "@/hooks/use-klines";
+import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
+import { ema, findSymbol, formatPercent, formatPrice, rsi, type TimeframeId } from "@/lib/market";
 import {
   analyzeLanes,
   headlines,
   laneScoreCurve,
   type LaneResult,
+  type LiveContext,
   type Verdict,
 } from "@/lib/radar";
 import { cn } from "@/lib/utils";
@@ -197,15 +201,34 @@ function LaneCard({ lane, index }: { lane: LaneResult; index: number }) {
 
 interface RadarProps {
   symbolId: string;
-  timeframe: string;
+  timeframe: TimeframeId;
 }
 
 export default function Radar({ symbolId, timeframe }: RadarProps) {
   const [seed, setSeed] = useState(0);
   const [auto, setAuto] = useState(true);
+
+  /* live tape — the Technical lane reads real candles, not the seeded model */
+  const { candles } = useKlines(symbolId, timeframe);
+  const tickers = useMarketSnapshot([symbolId]);
+  const ticker = tickers[symbolId];
+  const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
+
+  const live: LiveContext = useMemo(() => {
+    const closes = candles.map((c) => c.close);
+    const rsiVals = closes.length >= 20 ? rsi(closes, 14) : null;
+    const emaVals = closes.length >= 200 ? ema(closes, 200) : null;
+    return {
+      price: ticker?.price ?? closes[closes.length - 1] ?? sym.basePrice,
+      change24h: ticker?.change24h ?? 0,
+      rsi: rsiVals?.[rsiVals.length - 1] ?? null,
+      ema200: emaVals?.[emaVals.length - 1] ?? null,
+    };
+  }, [candles, ticker, sym.basePrice]);
+
   const result = useMemo(
-    () => analyzeLanes(symbolId, timeframe, seed),
-    [symbolId, timeframe, seed],
+    () => analyzeLanes(symbolId, timeframe, seed, live),
+    [symbolId, timeframe, seed, live],
   );
   const news = useMemo(() => headlines(seed), [seed]);
 
@@ -233,6 +256,24 @@ export default function Radar({ symbolId, timeframe }: RadarProps) {
           <h1 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-2xl">
             Four-lane pipeline · {symbolId} · {timeframe}
           </h1>
+        </div>
+        <div className="glass-chip hidden items-center gap-2 rounded-lg px-3 py-1.5 font-mono text-[11px] sm:flex">
+          <span className="relative flex size-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00E676] opacity-60" />
+            <span className="relative inline-flex size-1.5 rounded-full bg-[#00E676]" />
+          </span>
+          <span className="text-slate-500">LIVE</span>
+          <span className="font-semibold text-foreground">
+            {formatPrice(live.price, sym.decimals)}
+          </span>
+          <span
+            className={cn(
+              "font-semibold",
+              live.change24h >= 0 ? "text-[#00E676]" : "text-[#FF1744]",
+            )}
+          >
+            {formatPercent(live.change24h)}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <button

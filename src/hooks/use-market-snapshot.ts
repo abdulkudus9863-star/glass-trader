@@ -1,6 +1,6 @@
 import { api } from "@/convex/_generated/api";
 import { useAction } from "convex/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type MarketSymbol,
   fetchTicker24h,
@@ -77,6 +77,10 @@ export function useMarketSnapshot(symbolIds: string[]) {
   const [tickers, setTickers] = useState<Record<string, TickerState>>({});
   const tickerAction = useAction(api.market.ticker);
 
+  /* symbols currently backed by a real feed (Binance / Twelve Data) — the
+     synthetic tick loop must never walk a real quote away from the market */
+  const realFeedsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     const init: Record<string, TickerState> = {};
     for (const s of symbols) init[s.id] = seedTicker(s);
@@ -96,6 +100,7 @@ export function useMarketSnapshot(symbolIds: string[]) {
         for (const s of symbols) {
           const t = s.binance ? map.get(s.binance) : undefined;
           if (!t) continue;
+          realFeedsRef.current.add(s.id);
           const prevT = next[s.id];
           next[s.id] = {
             symbol: s,
@@ -122,6 +127,7 @@ export function useMarketSnapshot(symbolIds: string[]) {
         for (const [id, t] of Object.entries(map)) {
           const sym = findSymbol(id);
           if (!sym) continue;
+          realFeedsRef.current.add(id);
           const prevT = next[id];
           next[id] = {
             symbol: sym,
@@ -142,10 +148,16 @@ export function useMarketSnapshot(symbolIds: string[]) {
     const binancePoll = setInterval(refreshBinance, 15_000);
     const livePoll = setInterval(refreshLive, 60_000);
 
+    /* keep the tape moving between polls — but only for symbols without a
+       real feed; real quotes stay pinned to the market value */
     const tick = setInterval(() => {
       setTickers((prev) => {
         const next: Record<string, TickerState> = {};
         for (const [id, t] of Object.entries(prev)) {
+          if (realFeedsRef.current.has(id)) {
+            next[id] = t;
+            continue;
+          }
           const price = Math.max(
             1,
             t.price * (1 + gaussian() * (t.symbol.vol24h / 100) * 0.32),

@@ -41,6 +41,15 @@ export interface RadarResult {
   generatedAt: number;
 }
 
+/** Optional live tape context — when present, the Technical lane reads real
+ *  price action instead of the seeded model. */
+export interface LiveContext {
+  price: number;
+  change24h: number;
+  rsi: number | null;
+  ema200: number | null;
+}
+
 const pick = <T,>(rand: () => number, arr: T[]): T =>
   arr[Math.floor(rand() * arr.length)];
 
@@ -52,9 +61,10 @@ function verdictFromScore(score: number): { verdict: Verdict; tier: Tier } {
 
 /* ------------------------------ lanes ------------------------------ */
 
-function technicalLane(rand: () => number): LaneResult {
-  const rsiVal = 28 + rand() * 46; // 28..74
-  const emaBull = rand() > 0.5;
+function technicalLane(rand: () => number, live: LiveContext | null = null): LaneResult {
+  const rsiVal = live?.rsi != null ? Math.max(1, Math.min(99, live.rsi)) : 28 + rand() * 46; // 28..74
+  const emaBull =
+    live?.ema200 != null ? live.price > live.ema200 : rand() > 0.5;
   const macdPos = rand() > 0.45;
   const score = Math.round(
     (rsiVal < 40 ? 78 : rsiVal > 62 ? 22 : 50) + (emaBull ? 8 : -8) + (macdPos ? 6 : -6),
@@ -68,7 +78,13 @@ function technicalLane(rand: () => number): LaneResult {
     tier,
     score: Math.max(4, Math.min(96, score)),
     metrics: [
-      { label: "EMA 200", value: emaBull ? "Above EMA200" : "Below EMA200", tone: emaBull ? "pos" : "neg" },
+      {
+        label: "EMA 200",
+        value: live?.ema200 != null
+          ? `${emaBull ? "Above" : "Below"} EMA200 ${live.ema200.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+          : emaBull ? "Above EMA200" : "Below EMA200",
+        tone: emaBull ? "pos" : "neg",
+      },
       { label: "RSI 14", value: rsiVal.toFixed(1), tone: rsiVal < 40 ? "pos" : rsiVal > 62 ? "neg" : "neu" },
       { label: "MACD", value: macdPos ? "Histogram > 0" : "Histogram < 0", tone: macdPos ? "pos" : "neg" },
     ],
@@ -188,10 +204,11 @@ export function analyzeLanes(
   symbolId: string,
   timeframe: string,
   seedOffset = 0,
+  live: LiveContext | null = null,
 ): RadarResult {
   const rand = mulberry32(hashString(`radar-${symbolId}-${timeframe}-${seedOffset}`));
   const lanes = [
-    technicalLane(rand),
+    technicalLane(rand, live),
     flowLane(rand),
     narrativeLane(rand),
     macroLane(rand),
