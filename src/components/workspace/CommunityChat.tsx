@@ -80,19 +80,19 @@ export default function CommunityChat() {
                 className={`flex items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}
               >
                 <Avatar className="mt-0.5 size-6 shrink-0">
-                  <AvatarFallback className="bg-gradient-to-br from-blue-600 to-sky-400 text-[9px] font-bold text-white">
+                  <AvatarFallback className="bg-gradient-to-br from-[#F4C430] to-yellow-600 text-[9px] font-bold text-[#0a0e1a]">
                     {m.authorName.slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <div
                   className={`max-w-[80%] rounded-xl px-2.5 py-1.5 ${
                     mine
-                      ? "rounded-tr-sm bg-blue-600 text-white"
+                      ? "rounded-tr-sm bg-[#F4C430] text-[#0a0e1a]"
                       : "rounded-tl-sm bg-white/10 text-slate-200"
                   }`}
                 >
                   {!mine && (
-                    <p className="mb-0.5 text-[10px] font-bold text-blue-400">
+                    <p className="mb-0.5 text-[10px] font-bold text-[#F4C430]">
                       {m.authorName}
                     </p>
                   )}
@@ -101,7 +101,7 @@ export default function CommunityChat() {
                   </p>
                   <p
                     className={`mt-0.5 text-right text-[9px] ${
-                      mine ? "text-blue-200" : "text-muted-foreground"
+                      mine ? "text-[#0a0e1a]/70" : "text-muted-foreground"
                     }`}
                   >
                     {new Date(m._creationTime).toLocaleTimeString([], {
@@ -132,7 +132,7 @@ export default function CommunityChat() {
           type="submit"
           size="icon"
           disabled={!text.trim() || sending}
-          className="size-9 shrink-0 rounded-lg bg-blue-600 hover:bg-blue-500"
+          className="size-9 shrink-0 rounded-lg bg-[#F4C430] text-[#0a0e1a] hover:bg-[#F4C430]/85"
         >
           <SendHorizonal className="size-4" />
         </Button>

@@ -68,7 +68,7 @@ function technicalLane(rand: () => number): LaneResult {
     tier,
     score: Math.max(4, Math.min(96, score)),
     metrics: [
-      { label: "EMA 9/21/50/200", value: emaBull ? "Bullish stack" : "Bearish stack", tone: emaBull ? "pos" : "neg" },
+      { label: "EMA 200", value: emaBull ? "Above EMA200" : "Below EMA200", tone: emaBull ? "pos" : "neg" },
       { label: "RSI 14", value: rsiVal.toFixed(1), tone: rsiVal < 40 ? "pos" : rsiVal > 62 ? "neg" : "neu" },
       { label: "MACD", value: macdPos ? "Histogram > 0" : "Histogram < 0", tone: macdPos ? "pos" : "neg" },
     ],

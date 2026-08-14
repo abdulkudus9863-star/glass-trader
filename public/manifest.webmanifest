@@ -1,16 +1,16 @@
 {
-  "name": "Abdul Kudus Trading Academy — Professional Trading Terminal",
-  "short_name": "Abdul Kudus",
-  "description": "Real-time multi-asset charts, a complete indicator library and invitation-gated proprietary studies.",
+  "name": "Ak Analyser — DEEEPR AI 2.0 Engine",
+  "short_name": "Ak Analyser",
+  "description": "Multi-lane AI trading engine: radar pipeline, SMC charting, strategy compiler, AI copilot and Telegram signal dispatch.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#131722",
-  "theme_color": "#131722",
+  "background_color": "#050811",
+  "theme_color": "#050811",
   "icons": [
     {
-      "src": "/logo.png",
+      "src": "/logo.svg",
       "sizes": "any",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]

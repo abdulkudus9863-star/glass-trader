@@ -353,12 +353,13 @@ export default function StrategyCompiler({
             {/* Input panel */}
             <div className="glass rounded-2xl p-4">
               <label className="mb-2 block text-xs font-semibold text-slate-300">
-                Describe your strategy
+                Describe your strategy below — AI will compile it into an
+                executable spec
               </label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe your strategy below (e.g. 'Buy XAUUSD on 15m when RSI < 30 and price hits 5m FVG demand zone')"
+                placeholder="Describe your strategy below — AI will compile it into an executable spec (e.g. 'Buy XAUUSD on 15m when RSI < 30 and price hits 5m FVG demand zone')"
                 className="min-h-[96px] w-full resize-none rounded-xl border border-[#1B263B] bg-[#050811]/70 p-3 font-mono text-[13px] leading-6 text-foreground placeholder:text-muted-foreground focus:border-[#A855F7]/50 focus:outline-none focus:ring-1 focus:ring-[#A855F7]/40"
                 maxLength={400}
               />

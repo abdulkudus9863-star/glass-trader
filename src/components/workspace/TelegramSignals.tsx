@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Check, ChevronRight, Radio, SendHorizonal } from "lucide-react";
+import { Check, Radio, SendHorizonal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ interface Signal {
   tp1: string;
   tp2: string;
   confluence: string;
+  tier: string;
   rr: string;
   status: SignalStatus;
   ts: number;
@@ -30,6 +31,7 @@ const SIGNAL_TEMPLATES: Omit<Signal, "id" | "status" | "ts">[] = [
     tp1: "$2,260.00",
     tp2: "$2,300.00",
     confluence: "4/4 Lanes Aligned",
+    tier: "HIGH",
     rr: "3.2",
   },
   {
@@ -41,6 +43,7 @@ const SIGNAL_TEMPLATES: Omit<Signal, "id" | "status" | "ts">[] = [
     tp1: "$69,000",
     tp2: "$71,200",
     confluence: "3/4 Lanes Aligned",
+    tier: "MID",
     rr: "2.6",
   },
   {
@@ -52,6 +55,7 @@ const SIGNAL_TEMPLATES: Omit<Signal, "id" | "status" | "ts">[] = [
     tp1: "1.0796",
     tp2: "1.0752",
     confluence: "2/4 Lanes Aligned",
+    tier: "LOW",
     rr: "2.1",
   },
   {
@@ -63,6 +67,7 @@ const SIGNAL_TEMPLATES: Omit<Signal, "id" | "status" | "ts">[] = [
     tp1: "$3,560",
     tp2: "$3,640",
     confluence: "3/4 Lanes Aligned",
+    tier: "MID",
     rr: "2.9",
   },
 ];
@@ -71,6 +76,12 @@ const STATUS_STYLE: Record<SignalStatus, string> = {
   SENT: "text-slate-400 border-slate-500/30",
   DELIVERED: "text-[#00F0FF] border-[#00F0FF]/30",
   CLICKED: "text-[#00E676] border-[#00E676]/30",
+};
+
+const TIER_STYLE: Record<string, string> = {
+  HIGH: "text-[#F4C430] border-[#F4C430]/30 bg-[#F4C430]/10",
+  MID: "text-[#00F0FF] border-cyan-400/30 bg-cyan-400/10",
+  LOW: "text-slate-400 border-white/10 bg-white/5",
 };
 
 const fmt = (ts: number) =>
@@ -131,7 +142,7 @@ export default function TelegramSignals() {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00F0FF]">
-            Telegram Signal Dispatch
+            Telegram Bot Dispatcher
           </p>
           <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
             Outgoing alert feed
@@ -182,24 +193,40 @@ export default function TelegramSignals() {
                 {s.status}
               </span>
             </div>
-            <p className="mt-2.5 font-mono text-[11px] leading-5 text-slate-300">
-              <span className="text-slate-500">Entry:</span>{" "}
-              <span className="font-semibold text-[#F4C430]">{s.entry}</span> ·{" "}
-              <span className="text-slate-500">SL:</span>{" "}
-              <span className="font-semibold text-[#FF1744]">{s.sl}</span> ·{" "}
-              <span className="text-slate-500">TP1:</span>{" "}
-              <span className="font-semibold text-[#00E676]">{s.tp1}</span> ·{" "}
-              <span className="text-slate-500">TP2:</span>{" "}
-              <span className="font-semibold text-[#00E676]">{s.tp2}</span>
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px]">
-              <span className="flex items-center gap-1 text-slate-400">
-                <ChevronRight className="size-3 text-[#00F0FF]" />
-                Confluence:{" "}
-                <span className="font-semibold text-foreground">{s.confluence}</span>
+
+            {/* Dispatch line — the exact format sent to the channel */}
+            <p className="mt-2.5 rounded-lg border border-[#1B263B] bg-[#050811]/70 px-3 py-2 font-mono text-[11px] leading-5 text-slate-300">
+              <span className={s.bias === "LONG" ? "text-[#00E676]" : "text-[#FF1744]"}>
+                {s.bias === "LONG" ? "🟢" : "🔴"} {s.bias}
               </span>
-              <span className="text-slate-400">
-                R:R <span className="font-mono font-semibold text-foreground">1:{s.rr}</span>
+              <span className="text-slate-500"> · </span>
+              <span className="font-semibold text-foreground">{s.asset}</span>
+              <span className="text-slate-500"> · </span>
+              {s.tf}
+              <span className="text-slate-500"> | Entry: </span>
+              <span className="font-semibold text-[#F4C430]">{s.entry}</span>
+              <span className="text-slate-500"> | SL: </span>
+              <span className="font-semibold text-[#FF1744]">{s.sl}</span>
+              <span className="text-slate-500"> | TP1: </span>
+              <span className="font-semibold text-[#00E676]">{s.tp1}</span>
+              <span className="text-slate-500"> | TP2: </span>
+              <span className="font-semibold text-[#00E676]">{s.tp2}</span>
+              <span className="text-slate-500"> | </span>
+              <span className="font-semibold text-foreground">{s.confluence}</span>
+              <span className="text-slate-500"> | </span>
+              <span className="font-semibold text-[#F4C430]">{s.tier} Tier</span>
+              <span className="text-slate-500"> | R:R </span>
+              <span className="font-semibold text-foreground">1:{s.rr}</span>
+            </p>
+
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px]">
+              <span
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full border px-2 py-px text-[9px] font-bold",
+                  TIER_STYLE[s.tier],
+                )}
+              >
+                {s.confluence} · {s.tier} TIER
               </span>
               <span className="ml-auto flex items-center gap-1 font-mono text-slate-500">
                 <Check className="size-3 text-[#00E676]" />

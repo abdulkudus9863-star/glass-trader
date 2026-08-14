@@ -69,8 +69,8 @@ export default function MyAccess() {
           ))}
         </div>
 
-        <div className="mt-4 flex items-start gap-2 rounded-lg bg-blue-500/10 p-2.5">
-          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-blue-400" />
+        <div className="mt-4 flex items-start gap-2 rounded-lg bg-[#F4C430]/10 p-2.5">
+          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-[#F4C430]" />
           <p className="text-[10px] leading-4 text-muted-foreground">
             Proprietary indicators are granted by admins through the invitation
             system — you&apos;ll see unlocked tools here instantly when they

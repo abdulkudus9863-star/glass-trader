@@ -177,7 +177,7 @@ export default function Dashboard() {
   );
   const [strategies, setStrategies] = useState<StrategyOverlay[]>([]);
 
-  const { tokens, spend } = useTokens();
+  const { tokens, spend, topUp } = useTokens();
   const { canInstall, install } = usePwaInstall();
 
   const indicatorList = useMemo(() => [...indicators], [indicators]);
@@ -414,7 +414,12 @@ export default function Dashboard() {
             tab !== "more" && "hidden",
           )}
         >
-          <MorePanel isAdmin={isAdmin} isFounder={isFounder} />
+          <MorePanel
+            isAdmin={isAdmin}
+            isFounder={isFounder}
+            tokens={tokens}
+            onTopUp={topUp}
+          />
         </div>
       </div>
 

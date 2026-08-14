@@ -30,10 +30,10 @@ interface ChatMessage {
 }
 
 const CHIPS = [
-  "Should I long BTC?",
+  "Should I long XAUUSD?",
+  "What is BTC doing right now?",
+  "ETH or SOL today?",
   "XAUUSD SMC analysis",
-  "Is ETH overbought?",
-  "What's the EURUSD setup today?",
 ];
 
 function makeReply(prompt: string, symbolId: string, price: number, change24h: number) {
@@ -273,7 +273,7 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Ask about any setup… (e.g. Should I long BTC?)"
+            placeholder="Ask about any setup… (e.g. Should I long XAUUSD?)"
             className="h-10 min-w-0 flex-1 rounded-xl border border-[#1B263B] bg-white/[0.03] px-3.5 font-mono text-[13px] text-foreground placeholder:text-muted-foreground focus:border-[#A855F7]/50 focus:outline-none focus:ring-1 focus:ring-[#A855F7]/40"
             maxLength={240}
           />

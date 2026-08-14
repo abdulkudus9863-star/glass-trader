@@ -83,13 +83,13 @@ export default function AppHeader({
         </div>
         <div className="hidden leading-tight sm:block">
           <p className="flex items-center gap-1.5 text-[13px] font-bold tracking-tight text-[#F4C430]">
-            Abdul Kudus
+            Ak Analyser
             <span className="rounded bg-[#F4C430]/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-widest text-[#F4C430] ring-1 ring-[#F4C430]/30">
               Beta
             </span>
           </p>
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">
-            Trading Academy
+            DEEEPR AI 2.0 Engine
           </p>
         </div>
       </div>

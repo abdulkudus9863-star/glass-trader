@@ -123,14 +123,14 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               <div className="flex justify-center">
                     <img
                       src={logo}
-                      alt="Abdul Kudus Trading Academy logo"
+                      alt="Ak Analyser — DEEEPR AI 2.0 Engine logo"
                       width={64}
                       height={64}
                       className="rounded-lg mb-4 mt-4 cursor-pointer"
                       onClick={() => navigate("/")}
                     />
                   </div>
-                <CardTitle className="text-xl">Sign in to the Academy</CardTitle>
+                <CardTitle className="text-xl">Sign in to Ak Analyser</CardTitle>
                 <CardDescription>
                   Enter your email and we&apos;ll send a one-time code. New
                   addresses create an account automatically.

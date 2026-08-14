@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const CATEGORY_STYLE: Record<IndicatorCategory, string> = {
-  Trend: "bg-blue-500/10 text-blue-400 border-blue-500/25",
+  Trend: "bg-[#00F0FF]/10 text-[#00F0FF] border-[#00F0FF]/25",
   Momentum: "bg-violet-500/10 text-violet-400 border-violet-500/25",
   Volume: "bg-sky-500/10 text-sky-400 border-sky-500/25",
   Volatility: "bg-amber-500/10 text-amber-400 border-amber-500/25",
@@ -64,7 +64,7 @@ export default function IndicatorModal({
       <DialogContent className="glass-strong max-w-md gap-0 p-0 sm:max-w-md">
         <DialogHeader className="border-b border-border/60 px-5 pb-4 pt-5 text-left">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-[#00F0FF]/10 text-[#00F0FF]">
               <FunctionSquare className="size-4" />
             </div>
             <div>

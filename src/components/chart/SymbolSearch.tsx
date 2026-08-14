@@ -59,10 +59,10 @@ export default function SymbolSearch({ value, onSelect }: SymbolSearchProps) {
           type="button"
           className={cn(
             "glass-chip flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition-all",
-            "hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-blue-400",
+            "hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-[#00F0FF]",
           )}
         >
-          <span className="text-blue-400">{active?.id ?? "—"}</span>
+          <span className="text-[#F4C430]">{active?.id ?? "—"}</span>
           <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
             {active?.name}
           </span>

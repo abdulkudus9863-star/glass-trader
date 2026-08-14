@@ -59,9 +59,9 @@ export default function DrawingToolbar({
             onClick={() => onToolChange(active ? null : def.id)}
             className={cn(
               "flex size-8 items-center justify-center rounded-md text-slate-400 transition-all",
-              "hover:bg-white/5 hover:text-blue-400 hover:shadow-sm",
+              "hover:bg-white/5 hover:text-[#00F0FF] hover:shadow-sm",
               active &&
-                "bg-blue-500/15 text-blue-400 shadow-sm ring-1 ring-blue-400/40",
+                "bg-[#00F0FF]/15 text-[#00F0FF] shadow-sm ring-1 ring-[#00F0FF]/40",
             )}
           >
             <Icon className="size-4" />
@@ -78,7 +78,7 @@ export default function DrawingToolbar({
       <div className="mx-1 my-1 h-px bg-border/70" />
       {ACTION_TOOLS.map(renderButton)}
       {tool && (
-        <div className="mt-1 flex h-7 items-center justify-center rounded-md bg-blue-500/15 px-1 text-center text-[9px] font-semibold leading-tight text-blue-400">
+        <div className="mt-1 flex h-7 items-center justify-center rounded-md bg-[#00F0FF]/15 px-1 text-center text-[9px] font-semibold leading-tight text-[#00F0FF]">
           Esc to exit
         </div>
       )}

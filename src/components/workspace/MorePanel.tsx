@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
   Calculator,
+  CircleDollarSign,
   FunctionSquare,
   GraduationCap,
   KeyRound,
@@ -19,9 +20,19 @@ import CommunityChat from "./CommunityChat";
 import IndicatorLibrary from "./IndicatorLibrary";
 import PositionCalculator from "./PositionCalculator";
 import TelegramSignals from "./TelegramSignals";
+import TokenStore from "./TokenStore";
 import TradeJournal from "./TradeJournal";
 
-type SectionId = "overview" | "admin" | "telegram" | "library" | "academy" | "calculator" | "journal" | "chat";
+type SectionId =
+  | "overview"
+  | "admin"
+  | "telegram"
+  | "store"
+  | "library"
+  | "academy"
+  | "calculator"
+  | "journal"
+  | "chat";
 
 interface Section {
   id: SectionId;
@@ -35,15 +46,22 @@ interface Section {
 interface MorePanelProps {
   isAdmin: boolean;
   isFounder: boolean;
+  tokens: number;
+  onTopUp: (amount: number) => void;
 }
 
-export default function MorePanel({ isAdmin, isFounder }: MorePanelProps) {
+export default function MorePanel({
+  isAdmin,
+  isFounder,
+  tokens,
+  onTopUp,
+}: MorePanelProps) {
   const [section, setSection] = useState<SectionId>("overview");
 
   const allSections: Section[] = [
     {
       id: "admin",
-      label: "Founder Admin Portal",
+      label: "Founder Admin Panel",
       body: "Run the academy — indicator studio, member access and signal controls.",
       icon: ShieldCheck,
       accent: "text-[#F4C430] bg-[#F4C430]/10 ring-[#F4C430]/25",
@@ -51,15 +69,23 @@ export default function MorePanel({ isAdmin, isFounder }: MorePanelProps) {
     },
     {
       id: "telegram",
-      label: "Telegram Signal Logs",
+      label: "Telegram Bot Dispatcher",
       body: "Live dispatch feed of every outgoing trade alert.",
       icon: SendHorizonal,
       accent: "text-[#00F0FF] bg-[#00F0FF]/10 ring-[#00F0FF]/25",
       badge: "LIVE",
     },
     {
+      id: "store",
+      label: "Token Store",
+      body: "Refill engine credits to keep the compiler and copilot running.",
+      icon: CircleDollarSign,
+      accent: "text-[#F4C430] bg-[#F4C430]/10 ring-[#F4C430]/25",
+      badge: "WALLET",
+    },
+    {
       id: "library",
-      label: "Indicator Library",
+      label: "Indicator Studio",
       body: "Every public and invite-only study in the academy.",
       icon: FunctionSquare,
       accent: "text-[#F4C430] bg-[#F4C430]/10 ring-[#F4C430]/25",
@@ -189,6 +215,7 @@ export default function MorePanel({ isAdmin, isFounder }: MorePanelProps) {
             >
               {section === "admin" && <AdminPortal />}
               {section === "telegram" && <TelegramSignals />}
+              {section === "store" && <TokenStore tokens={tokens} onTopUp={onTopUp} />}
               {section === "library" && <IndicatorLibrary />}
               {section === "academy" && <Academy />}
               {section === "calculator" && <PositionCalculator />}

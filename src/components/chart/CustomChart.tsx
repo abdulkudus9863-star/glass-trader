@@ -816,7 +816,7 @@ export default function CustomChart({
       vertAlign: "center",
       lines: [
         {
-          text: "Abdul Kudus Trading Academy",
+          text: "Abdul Kudus Trading Academy · Founder Portal",
           color: "rgba(212,175,55,0.07)",
           fontSize: 30,
           fontFamily: "system-ui",
