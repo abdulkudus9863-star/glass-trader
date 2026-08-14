@@ -133,6 +133,73 @@ function rr(decimal: number): number {
   return Math.round(decimal * 10) / 10;
 }
 
+/* ------------------------ LLM output normalization ------------------------ */
+
+/**
+ * Sanitize an LLM-produced strategy JSON into a valid StrategySpec. Falls
+ * back to the deterministic compiler for any missing/invalid field so a
+ * model mistake can never produce a broken spec.
+ */
+export function normalizeSpec(
+  raw: Record<string, unknown> | null | undefined,
+  prompt: string,
+  asset: string,
+  timeframe: string,
+  price: number,
+): StrategySpec {
+  const base = compileStrategy(prompt, asset, timeframe, price);
+  if (!raw || typeof raw !== "object") return base;
+  const sym = findSymbol(asset) ?? findSymbol("BTCUSDT")!;
+  const d = sym.decimals;
+  const num = (v: unknown, fallback: number): number => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  const numPair = (v: unknown, fallback: [number, number]): [number, number] => {
+    if (Array.isArray(v) && v.length === 2) {
+      const a = num(v[0], fallback[0]);
+      const b = num(v[1], fallback[1]);
+      return [Math.min(a, b), Math.max(a, b)];
+    }
+    return fallback;
+  };
+  const bias: StrategyBias =
+    raw.bias === "LONG" || raw.bias === "SHORT" || raw.bias === "WAIT"
+      ? raw.bias
+      : base.bias;
+  const str = (v: unknown, fallback: string): string =>
+    typeof v === "string" && v.trim() ? v.trim().slice(0, 60) : fallback;
+  const strList = (v: unknown, fallback: string[]): string[] => {
+    if (Array.isArray(v)) {
+      const list = v
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .slice(0, 6);
+      return list.length > 0 ? list : fallback;
+    }
+    return fallback;
+  };
+  const entryZone = numPair(raw.entryZone, base.entryZone);
+  const stopLoss = num(raw.stopLoss, base.stopLoss);
+  const takeProfits = numPair(raw.takeProfits, base.takeProfits);
+  const invalidation = num(raw.invalidation, base.invalidation);
+  const riskReward = Math.max(0.1, Math.round((Number(raw.riskReward) || base.riskReward) * 10) / 10);
+  const timeframeStr = str(raw.timeframe, base.timeframe).replace(/[^0-9mhwdHWD]/g, "");
+  const tf = /^\d+[mhwd]$/i.test(timeframeStr) ? timeframeStr : base.timeframe;
+  return {
+    ...base,
+    name: str(raw.name, base.name),
+    timeframe: tf,
+    bias,
+    entryZone,
+    stopLoss,
+    takeProfits,
+    invalidation,
+    riskReward,
+    conditions: strList(raw.conditions, base.conditions).slice(0, 4),
+    confluence: strList(raw.confluence, base.confluence).slice(0, 4),
+  };
+}
+
 /* --------------------------- main compiler --------------------------- */
 
 export const COMPILE_COST = 5;

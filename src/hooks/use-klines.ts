@@ -1,3 +1,5 @@
+import { api } from "@/convex/_generated/api";
+import { useAction } from "convex/react";
 import { useEffect, useState } from "react";
 import {
   type Candle,
@@ -13,15 +15,20 @@ import {
 
 /**
  * Live kline stream for one symbol/timeframe.
- * Renders synthetic candles instantly so the terminal never shows a blank
- * canvas, then swaps in real Binance candles for crypto when the network
- * allows. A lightweight tick loop keeps the last candle "live".
+ *
+ * Render chain (first success wins):
+ *   1. Twelve Data via Convex action — real gold / forex / metals / indices
+ *   2. Binance REST — real crypto
+ *   3. Synthetic generator — always renders, never a blank canvas
+ *
+ * A lightweight tick loop keeps the last candle moving between refreshes.
  */
 export function useKlines(symbolId: string, intervalId: TimeframeId) {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [source, setSource] = useState<DataSource>("synthetic");
   const [loading, setLoading] = useState(true);
   const sym = findSymbol(symbolId);
+  const klinesAction = useAction(api.market.klines);
 
   useEffect(() => {
     if (!sym) return;
@@ -33,10 +40,22 @@ export function useKlines(symbolId: string, intervalId: TimeframeId) {
     setLoading(false);
 
     if (sym.binance) {
+      /* crypto — Binance REST (free, no key needed) */
       fetchKlines(sym.binance, tf.ms, 300).then((real) => {
         if (cancelled || !real || real.length === 0) return;
         setCandles(real);
         setSource("binance");
+      });
+    } else {
+      /* forex / metals / indices — Twelve Data via the backend */
+      klinesAction({
+        symbolId: sym.id,
+        timeframeId: intervalId,
+        limit: 300,
+      }).then((res) => {
+        if (cancelled || !res || res.candles.length === 0) return;
+        setCandles(res.candles);
+        setSource("live");
       });
     }
 
@@ -68,7 +87,7 @@ export function useKlines(symbolId: string, intervalId: TimeframeId) {
       cancelled = true;
       clearInterval(live);
     };
-  }, [sym, intervalId]);
+  }, [sym, intervalId, klinesAction]);
 
   return { candles, source, loading };
 }

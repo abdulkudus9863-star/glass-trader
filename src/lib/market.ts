@@ -15,7 +15,7 @@ export type MarketType =
   | "indices"
   | "stocks";
 
-export type DataSource = "binance" | "synthetic";
+export type DataSource = "live" | "binance" | "synthetic";
 
 export interface Candle {
   time: number; // epoch seconds (UTCTimestamp)

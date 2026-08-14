@@ -16,6 +16,39 @@ export const roleValidator = v.union(
 );
 export type Role = Infer<typeof roleValidator>;
 
+/* ------------------------- strategy spec validator ------------------------- */
+
+export const strategySpecValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  prompt: v.string(),
+  asset: v.string(),
+  timeframe: v.string(),
+  bias: v.union(v.literal("LONG"), v.literal("SHORT"), v.literal("WAIT")),
+  entryZone: v.array(v.number()),
+  stopLoss: v.number(),
+  takeProfits: v.array(v.number()),
+  invalidation: v.number(),
+  riskReward: v.number(),
+  conditions: v.array(v.string()),
+  confluence: v.array(v.string()),
+  tokenCost: v.number(),
+  createdAt: v.number(),
+  status: v.union(
+    v.literal("ACTIVE"),
+    v.literal("DRAFT"),
+    v.literal("BACKTESTED"),
+  ),
+});
+
+/* ----------------------------- signal validator ---------------------------- */
+
+export const signalStatusValidator = v.union(
+  v.literal("SENT"),
+  v.literal("FAILED"),
+  v.literal("SIMULATED"),
+);
+
 const schema = defineSchema(
   {
     // default auth tables using convex auth.
@@ -38,6 +71,53 @@ const schema = defineSchema(
       authorName: v.string(),
       text: v.string(),
     }),
+
+    // per-user token wallet (real backend persistence — replaces localStorage)
+    wallets: defineTable({
+      userId: v.id("users"),
+      balance: v.number(),
+    }).index("userId", ["userId"]),
+
+    // per-user strategy portfolio (real backend persistence)
+    strategies: defineTable({
+      userId: v.id("users"),
+      spec: strategySpecValidator,
+      createdAt: v.number(),
+    }).index("userId", ["userId"]),
+
+    // outgoing Telegram signal dispatch log (real backend persistence)
+    signals: defineTable({
+      userId: v.id("users"),
+      bias: v.union(v.literal("LONG"), v.literal("SHORT")),
+      asset: v.string(),
+      tf: v.string(),
+      entry: v.string(),
+      sl: v.string(),
+      tp1: v.string(),
+      tp2: v.string(),
+      confluence: v.string(),
+      tier: v.string(),
+      rr: v.string(),
+      message: v.string(),
+      status: signalStatusValidator,
+      dispatchMode: v.union(v.literal("telegram"), v.literal("simulated")),
+      telegramMessageId: v.optional(v.number()),
+      createdAt: v.number(),
+    }).index("userId", ["userId"]),
+
+    // per-user copilot conversation history (real backend persistence)
+    copilotMessages: defineTable({
+      userId: v.id("users"),
+      role: v.union(v.literal("user"), v.literal("assistant")),
+      text: v.string(),
+      verdict: v.optional(
+        v.union(v.literal("LONG"), v.literal("SHORT"), v.literal("WAIT")),
+      ),
+      bullets: v.optional(v.array(v.string())),
+      rr: v.optional(v.string()),
+      model: v.optional(v.string()),
+      createdAt: v.number(),
+    }).index("userId", ["userId"]),
   },
   {
     schemaValidation: false,

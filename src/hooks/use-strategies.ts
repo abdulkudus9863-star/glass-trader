@@ -1,47 +1,66 @@
-import { useCallback, useEffect, useState } from "react";
+import { api } from "@/convex/_generated/api";
+import { useMutation, useQuery } from "convex/react";
+import { useCallback, useEffect, useRef } from "react";
 import type { StrategySpec, StrategyStatus } from "@/lib/strategy";
+import { useAuth } from "./use-auth";
 
 const STRATEGIES_KEY = "akt-saved-strategies";
 
-/** My Strategies portfolio — persists compiled specs to localStorage. */
+/**
+ * My Strategies portfolio backed by the Convex `strategies` table.
+ *
+ * Compiled specs persist per user on the backend (survive reloads, follow
+ * the user across devices). A one-time migration imports any portfolio left
+ * in localStorage by the previous client-only build.
+ */
 export function useStrategies() {
-  const [saved, setSaved] = useState<StrategySpec[]>([]);
+  const { user } = useAuth();
+  const authed = user != null;
+  const docs = useQuery(api.strategies.list, authed ? {} : "skip");
+  const saveTx = useMutation(api.strategies.save);
+  const removeTx = useMutation(api.strategies.remove);
+  const setStatusTx = useMutation(api.strategies.setStatus);
 
+  const saved: StrategySpec[] = (docs ?? []).map(
+    (d) => ({ ...d.spec }) as StrategySpec,
+  );
+
+  const migratedRef = useRef(false);
   useEffect(() => {
+    if (!authed || docs === undefined || migratedRef.current) return;
+    migratedRef.current = true;
     try {
       const raw = localStorage.getItem(STRATEGIES_KEY);
-      if (raw) setSaved(JSON.parse(raw) as StrategySpec[]);
+      if (raw) {
+        const parsed = JSON.parse(raw) as StrategySpec[];
+        for (const s of parsed) void saveTx({ spec: s });
+        localStorage.removeItem(STRATEGIES_KEY);
+      }
     } catch {
       /* ignore corrupt storage */
     }
-  }, []);
+  }, [authed, docs, saveTx]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STRATEGIES_KEY, JSON.stringify(saved));
-    } catch {
-      /* ignore quota errors */
-    }
-  }, [saved]);
+  const save = useCallback(
+    (spec: StrategySpec) => {
+      void saveTx({ spec });
+    },
+    [saveTx],
+  );
 
-  const save = useCallback((spec: StrategySpec) => {
-    setSaved((prev) => {
-      if (prev.some((s) => s.id === spec.id)) {
-        return prev.map((s) => (s.id === spec.id ? { ...s, ...spec } : s));
-      }
-      return [spec, ...prev].slice(0, 50);
-    });
-  }, []);
+  const remove = useCallback(
+    (id: string) => {
+      void removeTx({ specId: id });
+    },
+    [removeTx],
+  );
 
-  const remove = useCallback((id: string) => {
-    setSaved((prev) => prev.filter((s) => s.id !== id));
-  }, []);
-
-  const setStatus = useCallback((id: string, status: StrategyStatus) => {
-    setSaved((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, status } : s)),
-    );
-  }, []);
+  const setStatus = useCallback(
+    (id: string, status: StrategyStatus) => {
+      void setStatusTx({ specId: id, status });
+    },
+    [setStatusTx],
+  );
 
   return { saved, save, remove, setStatus };
 }

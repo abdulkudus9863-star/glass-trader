@@ -4,6 +4,7 @@ import { useKlines } from "@/hooks/use-klines";
 import { getIndicator } from "@/lib/indicators";
 import { findSymbol, getTimeframe, type TimeframeId } from "@/lib/market";
 import type { StrategyOverlay } from "@/lib/strategy";
+import { cn } from "@/lib/utils";
 import CustomChart, { type ChartType, type ToolId } from "./CustomChart";
 import TradingViewWidget, { ensureTvScript, tvState } from "./TradingViewWidget";
 
@@ -79,7 +80,7 @@ export default function ChartCanvas({
   founderBadge = false,
   strategies = [],
 }: ChartCanvasProps) {
-  const { candles } = useKlines(symbolId, intervalId);
+  const { candles, source } = useKlines(symbolId, intervalId);
   const [tvReady, setTvReady] = useState(false);
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const tf = getTimeframe(intervalId);
@@ -152,6 +153,33 @@ export default function ChartCanvas({
           <span className="truncate text-[10px] font-bold tracking-wide text-[#F4C430]">
             Abdul Kudus Trading Academy · Founder Portal
           </span>
+        </div>
+      )}
+
+      {/* Live / synthetic data-source badge (top-right, custom engine only) */}
+      {!showWidget && (
+        <div
+          className={cn(
+            "pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[9px] font-bold tracking-wider backdrop-blur-sm",
+            source === "synthetic"
+              ? "border-[#F4C430]/30 bg-[#0b101b]/75 text-[#F4C430]"
+              : "border-[#00E676]/30 bg-[#0b101b]/75 text-[#00E676]",
+          )}
+          title={
+            source === "synthetic"
+              ? "No live feed configured — showing the deterministic generator"
+              : source === "binance"
+                ? "Real Binance candles"
+                : "Real Twelve Data candles"
+          }
+        >
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              source === "synthetic" ? "bg-[#F4C430]" : "bg-[#00E676]",
+            )}
+          />
+          {source === "synthetic" ? "SYNTHETIC DATA" : source === "binance" ? "LIVE · BINANCE" : "LIVE · TWELVEDATA"}
         </div>
       )}
     </div>

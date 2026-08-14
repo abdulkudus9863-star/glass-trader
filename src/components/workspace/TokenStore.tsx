@@ -30,14 +30,14 @@ const PACKS: Pack[] = [
 
 interface TokenStoreProps {
   tokens: number;
-  onTopUp: (amount: number) => void;
+  onTopUp: (amount: number) => void | Promise<void>;
 }
 
 export default function TokenStore({ tokens, onTopUp }: TokenStoreProps) {
   const [purchased, setPurchased] = useState<string | null>(null);
 
   const buy = (p: Pack) => {
-    onTopUp(p.tokens);
+    void onTopUp(p.tokens);
     setPurchased(p.id);
     window.setTimeout(() => setPurchased(null), 2500);
   };

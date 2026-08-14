@@ -1,3 +1,5 @@
+import { api } from "@/convex/_generated/api";
+import { useAction } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
@@ -8,6 +10,7 @@ import {
   CircleDollarSign,
   FlaskConical,
   Flag,
+  Loader2,
   Pencil,
   Plus,
   Save,
@@ -25,6 +28,7 @@ import {
   COMPILE_COST,
   compileStrategy,
   fmtLevel,
+  normalizeSpec,
   type StrategyBias,
   type StrategySpec,
   type StrategyStatus,
@@ -214,7 +218,7 @@ function SpecCard({
 
 interface StrategyCompilerProps {
   tokens: number;
-  onSpend: (amount: number) => boolean;
+  onSpend: (amount: number) => Promise<boolean>;
   activeAsset: string;
   activeTimeframe: string;
   onApplyToChart: (spec: StrategySpec) => void;
@@ -233,8 +237,11 @@ export default function StrategyCompiler({
   const [tf, setTf] = useState(activeTimeframe);
   const [spec, setSpec] = useState<StrategySpec | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [compiling, setCompiling] = useState(false);
+  const [engine, setEngine] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const { saved, save, remove, setStatus } = useStrategies();
+  const compileAction = useAction(api.ai.compileStrategySpec);
 
   const tickers = useMarketSnapshot([asset]);
   const price = tickers[asset]?.price ?? findSymbol(asset)?.basePrice ?? 0;
@@ -242,7 +249,7 @@ export default function StrategyCompiler({
   const canAfford = tokens >= COMPILE_COST;
   const priceLabel = price ? formatPrice(price, findSymbol(asset)?.decimals ?? 2) : "…";
 
-  const compile = () => {
+  const compile = async () => {
     if (!prompt.trim()) {
       setError("Describe a strategy first — e.g. 'Buy XAUUSD on 15m when RSI < 30…'");
       return;
@@ -251,10 +258,34 @@ export default function StrategyCompiler({
       setError(`Compiling costs ${COMPILE_COST} tokens — your trial wallet is empty.`);
       return;
     }
-    if (!onSpend(COMPILE_COST)) return;
-    const compiled = compileStrategy(prompt, asset, tf, price || 1);
-    setSpec(compiled);
+    const spent = await onSpend(COMPILE_COST);
+    if (!spent) {
+      setError(`Compiling costs ${COMPILE_COST} tokens — your trial wallet is empty.`);
+      return;
+    }
+    setCompiling(true);
     setError(null);
+    let compiled: StrategySpec;
+    try {
+      const res = await compileAction({
+        prompt,
+        asset,
+        timeframe: tf,
+        price: price || 1,
+      });
+      if (res?.ok) {
+        compiled = normalizeSpec(res.parsed, prompt, asset, tf, price || 1);
+        setEngine(res.model);
+      } else {
+        compiled = compileStrategy(prompt, asset, tf, price || 1);
+        setEngine("local");
+      }
+    } catch {
+      compiled = compileStrategy(prompt, asset, tf, price || 1);
+      setEngine("local");
+    }
+    setCompiling(false);
+    setSpec(compiled);
     setSavedIds((prev) => new Set(prev).add(compiled.id));
     save(compiled);
   };
@@ -415,8 +446,8 @@ export default function StrategyCompiler({
                 <div className="ml-auto">
                   <button
                     type="button"
-                    onClick={compile}
-                    disabled={!prompt.trim()}
+                    onClick={() => void compile()}
+                    disabled={!prompt.trim() || compiling}
                     className={cn(
                       "flex h-9 items-center gap-2 rounded-lg px-4 font-display text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-40",
                       canAfford
@@ -424,8 +455,14 @@ export default function StrategyCompiler({
                         : "bg-slate-700 text-slate-300",
                     )}
                   >
-                    <Bot className="size-4" />
-                    Compile Strategy · −{COMPILE_COST} tokens
+                    {compiling ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Bot className="size-4" />
+                    )}
+                    {compiling
+                      ? "Compiling with AI…"
+                      : `Compile Strategy · −${COMPILE_COST} tokens`}
                   </button>
                 </div>
               </div>
@@ -440,6 +477,11 @@ export default function StrategyCompiler({
                 <span className="font-mono text-[#F4C430]">{priceLabel}</span>. The
                 compiler prices entry / stop / targets off the live tape and
                 parses your triggers into an executable overlay.
+                {engine && (
+                  <span className="ml-1.5 text-[#00E676]">
+                    · last compile via {engine === "local" ? "built-in engine" : engine}
+                  </span>
+                )}
               </p>
             </div>
 

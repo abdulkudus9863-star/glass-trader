@@ -1,8 +1,10 @@
+import { api } from "@/convex/_generated/api";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import {
   Bot,
   ChevronRight,
-  Lightbulb,
+  Cpu,
   SendHorizonal,
   ShieldAlert,
   Sparkles,
@@ -82,23 +84,49 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
   const price = ticker?.price ?? sym.basePrice;
   const change24h = ticker?.change24h ?? 0;
 
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "intro",
-      role: "assistant",
-      text: `I'm your AI copilot, anchored to live ${sym.id} tape (${formatPrice(price, sym.decimals)}). Ask me for a directional read, an SMC structure breakdown, or a risk check — I'll answer with data, not vibes.`,
-      ts: Date.now(),
-    },
-  ]);
+  const history = useQuery(api.copilot.listMessages);
+  const saveMessage = useMutation(api.copilot.saveMessage);
+  const copilotAction = useAction(api.ai.copilotReply);
+
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+  const [engine, setEngine] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  /* hydrate persisted history once */
+  useEffect(() => {
+    if (history === undefined || hydrated) return;
+    setMessages(
+      history.map((m) => ({
+        id: m._id,
+        role: m.role,
+        text: m.text,
+        verdict: m.verdict ?? undefined,
+        bullets: m.bullets ?? undefined,
+        rr: m.rr ?? undefined,
+        ts: m.createdAt,
+      })),
+    );
+    setHydrated(true);
+  }, [history, hydrated]);
+
+  const intro: ChatMessage = {
+    id: "intro",
+    role: "assistant",
+    text: `I'm your AI copilot, anchored to live ${sym.id} tape (${formatPrice(
+      price,
+      sym.decimals,
+    )}). Ask me for a directional read, an SMC structure breakdown, or a risk check — I'll answer with data, not vibes.`,
+    ts: Date.now(),
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, typing]);
 
-  const ask = (prompt: string) => {
+  const ask = async (prompt: string) => {
     const text = prompt.trim();
     if (!text || typing) return;
     const userMsg: ChatMessage = {
@@ -108,28 +136,94 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
       ts: Date.now(),
     };
     setMessages((m) => [...m, userMsg]);
+    void saveMessage({ role: "user", text });
     setDraft("");
     setTyping(true);
-    window.setTimeout(() => {
+
+    const fallback = (): ChatMessage => {
       const reply = makeReply(text, symbolId, price, change24h);
-      setMessages((m) => [
-        ...m,
-        {
+      return {
+        id: `a-${Date.now()}`,
+        role: "assistant",
+        text:
+          reply.verdict === "WAIT"
+            ? "**WAIT** — no high-quality setup right now."
+            : `**${reply.verdict}** on ${sym.id} with a defined invalidation.`,
+        verdict: reply.verdict,
+        bullets: reply.bullets,
+        rr: reply.rr,
+        ts: Date.now(),
+      };
+    };
+
+    let reply: ChatMessage;
+    try {
+      const res = await copilotAction({
+        symbolId,
+        price,
+        change24h,
+        prompt: text,
+        history: messages
+          .filter((m) => m.id !== "intro")
+          .slice(-8)
+          .map((m) => ({ role: m.role, content: m.text })),
+      });
+      if (res?.ok) {
+        const verdict: "LONG" | "SHORT" | "WAIT" =
+          res.verdict === "LONG" || res.verdict === "SHORT" || res.verdict === "WAIT"
+            ? res.verdict
+            : "WAIT";
+        reply = {
           id: `a-${Date.now()}`,
           role: "assistant",
           text:
-            reply.verdict === "WAIT"
+            verdict === "WAIT"
               ? "**WAIT** — no high-quality setup right now."
-              : `**${reply.verdict}** on ${sym.id} with a defined invalidation.`,
+              : `**${verdict}** on ${sym.id} with a defined invalidation.`,
+          verdict,
+          bullets: res.bullets,
+          rr: res.rr,
+          ts: Date.now(),
+        };
+        setEngine(res.model);
+        void saveMessage({
+          role: "assistant",
+          text: reply.text,
           verdict: reply.verdict,
           bullets: reply.bullets,
           rr: reply.rr,
-          ts: Date.now(),
-        },
-      ]);
-      setTyping(false);
-    }, 1100);
+          model: res.model,
+        });
+      } else {
+        reply = fallback();
+        setEngine("local");
+        void saveMessage({
+          role: "assistant",
+          text: reply.text,
+          verdict: reply.verdict,
+          bullets: reply.bullets,
+          rr: reply.rr,
+          model: "local",
+        });
+      }
+    } catch {
+      reply = fallback();
+      setEngine("local");
+      void saveMessage({
+        role: "assistant",
+        text: reply.text,
+        verdict: reply.verdict,
+        bullets: reply.bullets,
+        rr: reply.rr,
+        model: "local",
+      });
+    }
+    setMessages((m) => [...m, reply]);
+    setTyping(false);
   };
+
+  const displayMessages = messages.length === 0 ? [intro] : messages;
+  const engineLabel = engine === null ? "connecting" : engine === "local" ? "LOCAL ENGINE" : engine.toUpperCase();
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-4 sm:px-6">
@@ -146,6 +240,20 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
             AI trading assistant
           </h1>
         </div>
+        <div
+          className={cn(
+            "glass-chip flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-[10px]",
+            engine === "local"
+              ? "text-[#F4C430]"
+              : engine === null
+                ? "text-slate-500"
+                : "text-[#00E676]",
+          )}
+        >
+          <Cpu className="size-3.5" />
+          <span className="text-slate-500">ENGINE</span>
+          <span className="font-bold">{engineLabel}</span>
+        </div>
         <div className="glass-chip flex items-center gap-2 rounded-lg px-3 py-1.5 font-mono text-[11px]">
           <span className="text-slate-500">LIVE</span>
           <span className="font-semibold text-foreground">{sym.id}</span>
@@ -159,7 +267,7 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
       <div className="glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="flex flex-col gap-3">
-            {messages.map((m) => (
+            {displayMessages.map((m) => (
               <motion.div
                 key={m.id}
                 initial={{ opacity: 0, y: 8 }}
@@ -195,6 +303,8 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
                             "border-[#FF1744]/30 bg-[#FF1744]/10 text-[#FF1744]",
                           m.verdict === "WAIT" &&
                             "border-[#F4C430]/30 bg-[#F4C430]/10 text-[#F4C430]",
+                          !m.verdict &&
+                            "border-[#A855F7]/30 bg-[#A855F7]/10 text-[#A855F7]",
                         )}
                       >
                         {m.verdict ?? "ANALYSIS"}
@@ -254,7 +364,7 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
             <button
               key={c}
               type="button"
-              onClick={() => ask(c)}
+              onClick={() => void ask(c)}
               className="glass-chip shrink-0 rounded-full px-3 py-1.5 text-[11px] font-medium text-slate-300 transition-colors hover:text-[#00F0FF]"
             >
               {c}
@@ -266,7 +376,7 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            ask(draft);
+            void ask(draft);
           }}
           className="flex items-center gap-2 border-t border-[#1B263B] p-3"
         >
@@ -292,6 +402,12 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
         <ShieldAlert className="size-3 text-[#F4C430]" />
         Copilot reads live tape but is a model, not a licensed advisor — every
         call deserves a chart check before you act on it.
+      </p>
+      <p className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <Sparkles className="size-3 text-[#A855F7]" />
+        {engine === "local"
+          ? "OpenAI key not set — running the built-in engine. Add OPENAI_API_KEY in the project keys to go live."
+          : "Conversation history is persisted to your account on the backend."}
       </p>
     </div>
   );

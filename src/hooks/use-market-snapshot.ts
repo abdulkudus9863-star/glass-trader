@@ -1,3 +1,5 @@
+import { api } from "@/convex/_generated/api";
+import { useAction } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 import {
   type MarketSymbol,
@@ -54,9 +56,12 @@ function seedTicker(s: MarketSymbol): TickerState {
 }
 
 /**
- * Live-ish snapshot of a set of markets. Uses real Binance 24h tickers for
- * crypto when the network allows (polled), and a deterministic random walk
- * for every other market so the tape always moves.
+ * Live-ish snapshot of a set of markets.
+ *
+ * Feed chain per symbol:
+ *   - crypto  → real Binance 24h tickers (polled every 15s)
+ *   - others  → real Twelve Data quotes via the backend (polled every 60s)
+ *   - fallback → deterministic random walk so the tape always moves
  */
 export function useMarketSnapshot(symbolIds: string[]) {
   const key = symbolIds.join(",");
@@ -70,6 +75,7 @@ export function useMarketSnapshot(symbolIds: string[]) {
   );
 
   const [tickers, setTickers] = useState<Record<string, TickerState>>({});
+  const tickerAction = useAction(api.market.ticker);
 
   useEffect(() => {
     const init: Record<string, TickerState> = {};
@@ -79,8 +85,9 @@ export function useMarketSnapshot(symbolIds: string[]) {
     const binanceSymbols = symbols
       .map((s) => s.binance)
       .filter((b): b is string => Boolean(b));
+    const liveSymbols = symbols.filter((s) => !s.binance);
 
-    const refresh = async () => {
+    const refreshBinance = async () => {
       if (binanceSymbols.length === 0) return;
       const map = await fetchTicker24h(binanceSymbols);
       if (!map) return;
@@ -104,8 +111,36 @@ export function useMarketSnapshot(symbolIds: string[]) {
       });
     };
 
-    refresh();
-    const poll = setInterval(refresh, 15_000);
+    const refreshLive = async () => {
+      if (liveSymbols.length === 0) return;
+      const map = await tickerAction({
+        symbolIds: liveSymbols.map((s) => s.id),
+      });
+      if (!map) return;
+      setTickers((prev) => {
+        const next = { ...prev };
+        for (const [id, t] of Object.entries(map)) {
+          const sym = findSymbol(id);
+          if (!sym) continue;
+          const prevT = next[id];
+          next[id] = {
+            symbol: sym,
+            price: t.price,
+            open: prevT?.open ?? t.price / (1 + t.change24h / 100),
+            change24h: t.change24h,
+            high: t.high,
+            low: t.low,
+            spark: prevT ? [...prevT.spark.slice(-25), t.price] : [t.price],
+          };
+        }
+        return next;
+      });
+    };
+
+    refreshBinance();
+    refreshLive();
+    const binancePoll = setInterval(refreshBinance, 15_000);
+    const livePoll = setInterval(refreshLive, 60_000);
 
     const tick = setInterval(() => {
       setTickers((prev) => {
@@ -129,9 +164,11 @@ export function useMarketSnapshot(symbolIds: string[]) {
     }, 1600);
 
     return () => {
-      clearInterval(poll);
+      clearInterval(binancePoll);
+      clearInterval(livePoll);
       clearInterval(tick);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbols]);
 
   return tickers;
