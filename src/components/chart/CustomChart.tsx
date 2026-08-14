@@ -21,6 +21,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { getIndicator } from "@/lib/indicators";
+import { type SmcOverlay } from "@/lib/smc";
 import type { StrategyOverlay } from "@/lib/strategy";
 import {
   type Candle,
@@ -71,6 +72,8 @@ interface RectBox {
   height: number;
   bullish: boolean;
   label?: string;
+  bottomLabel?: string;
+  tone?: "cyan";
 }
 
 interface Readout {
@@ -97,6 +100,8 @@ interface CustomChartProps {
   readoutOffset?: boolean;
   /** Compiled strategy overlays to render (signal, zones, SL/TP lines). */
   strategies?: StrategyOverlay[];
+  /** Live SMC overlays (watch zones, whale walls, swing S/R) for this symbol. */
+  smc?: SmcOverlay | null;
 }
 
 /* ------------------------- series data helpers -------------------------- */
@@ -329,6 +334,7 @@ export default function CustomChart({
   className,
   readoutOffset = false,
   strategies = [],
+  smc = null,
 }: CustomChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -340,6 +346,8 @@ export default function CustomChart({
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const strategiesRef = useRef<StrategyOverlay[]>([]);
   const strategyLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
+  const smcRef = useRef<SmcOverlay | null>(null);
+  const smcPriceLinesRef = useRef<IPriceLine[]>([]);
   const symbolIdRef = useRef(symbolId);
 
   const candlesRef = useRef<Candle[]>(candles);
@@ -362,6 +370,7 @@ export default function CustomChart({
   intradayRef.current = intraday;
   onToolConsumedRef.current = onToolConsumed;
   strategiesRef.current = strategies;
+  smcRef.current = smc;
   symbolIdRef.current = symbolId;
 
   const [drawings, setDrawings] = useState<Drawing[]>([]);
@@ -512,6 +521,89 @@ export default function CustomChart({
     }
   }, []);
 
+  const syncSmcVisuals = useCallback(() => {
+    const chart = chartRef.current;
+    const main = mainSeriesRef.current;
+    if (!chart || !main) return;
+    for (const pl of smcPriceLinesRef.current) main.removePriceLine(pl);
+    smcPriceLinesRef.current = [];
+
+    const overlay = smcRef.current;
+    if (!overlay) return;
+
+    /* swing S/R — dashed, color-coded support/resistance tags */
+    for (const lvl of overlay.swingLevels) {
+      smcPriceLinesRef.current.push(
+        main.createPriceLine({
+          price: lvl.price,
+          color: lvl.kind === "R" ? "rgba(255,23,68,0.9)" : "rgba(0,230,118,0.9)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          title: lvl.kind,
+          axisLabelVisible: true,
+        }),
+      );
+    }
+
+    /* whale walls — solid orderbook walls on the right price scale */
+    for (const wall of overlay.whaleWalls) {
+      smcPriceLinesRef.current.push(
+        main.createPriceLine({
+          price: wall.price,
+          color: wall.side === "ask" ? "rgba(255,23,68,0.75)" : "rgba(0,230,118,0.75)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          title: wall.size,
+          axisLabelVisible: true,
+        }),
+      );
+    }
+
+    /* watch zones — cyan band edges */
+    for (const zone of overlay.watchZones) {
+      smcPriceLinesRef.current.push(
+        main.createPriceLine({
+          price: zone.top,
+          color: "rgba(0,240,255,0.65)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: false,
+        }),
+        main.createPriceLine({
+          price: zone.bottom,
+          color: "rgba(0,240,255,0.65)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: false,
+        }),
+      );
+    }
+
+    /* EMA tip badges on active moving averages */
+    const closes = candlesRef.current.map((c) => c.close);
+    const active = indicatorIdsRef.current;
+    const badge = (id: "ema9" | "ema21", title: string, color: string) => {
+      if (!active.includes(id)) return;
+      const vals = ema(closes, id === "ema9" ? 9 : 21);
+      const tip = vals[vals.length - 1];
+      if (tip == null) return;
+      smcPriceLinesRef.current.push(
+        main.createPriceLine({
+          price: tip,
+          color: "rgba(255,255,255,0.06)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Solid,
+          title,
+          axisLabelVisible: true,
+          axisLabelColor: color,
+          axisLabelTextColor: "#0a0e1a",
+        }),
+      );
+    };
+    badge("ema9", "EMA 9", "#F4C430");
+    badge("ema21", "EMA 21", "#3b82f6");
+  }, []);
+
   const computeRects = useCallback(() => {
     const chart = chartRef.current;
     const main = mainSeriesRef.current;
@@ -528,6 +620,8 @@ export default function CustomChart({
       pBot: number,
       bullish: boolean,
       label?: string,
+      bottomLabel?: string,
+      tone?: "cyan",
     ) => {
       const x1 = chart.timeScale().timeToCoordinate(t1 as Time);
       const x2 = chart.timeScale().timeToCoordinate(t2 as Time);
@@ -541,8 +635,30 @@ export default function CustomChart({
         height: Math.abs(y2 - y1),
         bullish,
         label,
+        bottomLabel,
+        tone,
       });
     };
+
+    /* SMC watch zones — full-width cyan rejection bands around current price */
+    for (const zone of smcRef.current?.watchZones ?? []) {
+      const ts = chart.timeScale();
+      const vr = ts.getVisibleRange();
+      let t1: number;
+      let t2: number;
+      if (vr && vr.from != null && vr.to != null) {
+        t1 = vr.from as number;
+        t2 = vr.to as number;
+      } else {
+        const first = c[0];
+        const lastC = c[c.length - 1];
+        if (!first || !lastC) continue;
+        t1 = first.time;
+        t2 = lastC.time;
+      }
+      push(t1, t2, zone.top, zone.bottom, false, "WATCH ZONE ↑", "WATCH ZONE ↓", "cyan");
+    }
+
     for (const d of drawingsRef.current) {
       if (d.kind === "rect")
         push(d.p1.time, d.p2.time, d.p1.price, d.p2.price, d.p1.price <= d.p2.price, "Rect");
@@ -600,6 +716,10 @@ export default function CustomChart({
       chart.removeSeries(previewSeriesRef.current);
       previewSeriesRef.current = null;
     }
+    for (const pl of smcPriceLinesRef.current) {
+      mainSeriesRef.current?.removePriceLine(pl);
+    }
+    smcPriceLinesRef.current = [];
     pendingRef.current = null;
 
     const c = candlesRef.current;
@@ -794,7 +914,11 @@ export default function CustomChart({
           labelBackgroundColor: "#00f0ff",
         },
       },
-      rightPriceScale: { borderColor: "rgba(120,123,134,0.25)" },
+      rightPriceScale: {
+        borderColor: "rgba(120,123,134,0.25)",
+        autoScale: true,
+        scaleMargins: { top: 0.15, bottom: 0.15 },
+      },
       timeScale: {
         borderColor: "rgba(120,123,134,0.25)",
         timeVisible: intradayRef.current,
@@ -844,6 +968,7 @@ export default function CustomChart({
       trendSeriesRef.current.clear();
       priceLinesRef.current.clear();
       strategyLinesRef.current.clear();
+      smcPriceLinesRef.current = [];
       previewSeriesRef.current = null;
       markersPluginRef.current = null;
       pendingRef.current = null;
@@ -893,6 +1018,12 @@ export default function CustomChart({
     computeRects();
   }, [strategies, syncStrategyVisuals, syncMarkers, computeRects]);
 
+  /* live SMC overlays (watch zones / whale walls / swing S/R / EMA badges) */
+  useEffect(() => {
+    syncSmcVisuals();
+    computeRects();
+  }, [smc, indicatorIds, candles, syncSmcVisuals, computeRects]);
+
   /* ------------------------------- render -------------------------------- */
 
   const changePct =
@@ -905,10 +1036,10 @@ export default function CustomChart({
       className={cn("relative h-full w-full min-h-0", className)}
       style={{ height: "100%", width: "100%", overflow: "hidden" }}
     >
-      {/* OHLC readout */}
+      {/* OHLC readout + overlay legend */}
       <div
         className={cn(
-          "pointer-events-none absolute left-3 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-medium tabular-nums",
+          "pointer-events-none absolute inset-x-3 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-1 pr-24 text-[11px] font-medium tabular-nums sm:pr-28",
           readoutOffset ? "top-9" : "top-2",
         )}
       >
@@ -939,23 +1070,48 @@ export default function CustomChart({
         >
           {formatPercent(changePct)}
         </span>
+
+        {/* Overlay legend — wraps below the readout on narrow screens */}
+        <span className="ml-auto flex flex-wrap items-center gap-x-2.5 text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+          <span className="flex items-center gap-1">🟡 Whale wall</span>
+          <span className="flex items-center gap-1">➖ Swing S/R</span>
+          <span className="flex items-center gap-1">🟢 Liquidity zone</span>
+          <span className="flex items-center gap-1">🔵 Watch zone</span>
+        </span>
       </div>
 
-      {/* rectangle / FVG overlays */}
+      {/* rectangle / FVG / watch-zone overlays */}
       {rects.map((r, i) => (
         <div
           key={`${r.label}-${i}`}
           className={cn(
             "pointer-events-none absolute z-[5] rounded-sm border",
-            r.bullish
-              ? "border-emerald-400/50 bg-emerald-400/10"
-              : "border-rose-400/50 bg-rose-400/10",
+            r.tone === "cyan"
+              ? "border-[#00F0FF]/55 bg-[#00F0FF]/[0.07]"
+              : r.bullish
+                ? "border-emerald-400/50 bg-emerald-400/10"
+                : "border-rose-400/50 bg-rose-400/10",
           )}
           style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
         >
           {r.label && (
-            <span className="absolute -top-3.5 left-0 text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+            <span
+              className={cn(
+                "absolute -top-3.5 left-0 text-[9px] font-bold uppercase tracking-wider",
+                r.tone === "cyan" ? "text-[#00F0FF]" : "text-slate-400",
+              )}
+            >
               {r.label}
+            </span>
+          )}
+          {r.bottomLabel && (
+            <span
+              className={cn(
+                "absolute -bottom-3.5 left-0 text-[9px] font-bold uppercase tracking-wider",
+                r.tone === "cyan" ? "text-[#00F0FF]" : "text-slate-400",
+              )}
+            >
+              {r.bottomLabel}
             </span>
           )}
         </div>

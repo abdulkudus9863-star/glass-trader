@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useKlines } from "@/hooks/use-klines";
 import { getIndicator } from "@/lib/indicators";
 import { findSymbol, getTimeframe, type TimeframeId } from "@/lib/market";
+import { analyzeSmc } from "@/lib/smc";
 import type { StrategyOverlay } from "@/lib/strategy";
 import { cn } from "@/lib/utils";
 import CustomChart, { type ChartType, type ToolId } from "./CustomChart";
@@ -85,6 +86,23 @@ export default function ChartCanvas({
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const tf = getTimeframe(intervalId);
 
+  /* Live SMC overlay — derived from the same candles the canvas renders, so
+     the watch zone / whale walls / swing levels always track the selected
+     symbol and timeframe. */
+  const smc = useMemo(() => {
+    const lastClose = candles[candles.length - 1]?.close;
+    if (lastClose == null) return null;
+    return analyzeSmc({
+      symbolId,
+      intervalId,
+      candles,
+      price: lastClose,
+      change24h: 0,
+      decimals: sym.decimals,
+      assetName: sym.name,
+    });
+  }, [candles, symbolId, intervalId, sym.decimals, sym.name]);
+
   /* Bootstrap the shared TradingView script once when the widget may be used. */
   useEffect(() => {
     if (engineMode === "custom") return;
@@ -133,6 +151,7 @@ export default function ChartCanvas({
           resetKey={`${symbolId}-${intervalId}`}
           readoutOffset={founderBadge}
           strategies={strategies}
+          smc={smc ? smc.overlay : null}
         />
       )}
       {showWidget && (

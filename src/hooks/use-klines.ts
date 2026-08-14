@@ -1,6 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import { useAction } from "convex/react";
 import { useEffect, useState } from "react";
+import { subscribeBinanceTicker } from "@/lib/realtime";
 import {
   type Candle,
   type DataSource,
@@ -39,12 +40,36 @@ export function useKlines(symbolId: string, intervalId: TimeframeId) {
     setSource("synthetic");
     setLoading(false);
 
+    /* true once a real (REST) candle history is loaded — the seeded walk
+       stops mutating real prices; the WebSocket owns the live last candle */
+    let wsActive = false;
+    let unsubscribeWs: (() => void) | null = null;
+
+    const attachWs = (binanceSymbol: string) => {
+      unsubscribeWs = subscribeBinanceTicker(binanceSymbol, (t) => {
+        wsActive = true;
+        setCandles((prev) => {
+          if (prev.length === 0) return prev;
+          const next = [...prev];
+          const last = next[next.length - 1];
+          next[next.length - 1] = {
+            ...last,
+            close: t.price,
+            high: Math.max(last.high, t.price),
+            low: Math.min(last.low, t.price),
+          };
+          return next;
+        });
+      });
+    };
+
     if (sym.binance) {
-      /* crypto — Binance REST (free, no key needed) */
+      /* crypto — Binance REST history + live WebSocket ticks (no key) */
       fetchKlines(sym.binance, tf.ms, 300).then((real) => {
         if (cancelled || !real || real.length === 0) return;
         setCandles(real);
         setSource("binance");
+        attachWs(sym.binance!);
       });
     } else {
       /* forex / metals / indices — Twelve Data via the backend */
@@ -68,7 +93,8 @@ export function useKlines(symbolId: string, intervalId: TimeframeId) {
         if (nowMs - last.time * 1000 >= tf.ms) {
           next.push(makeNextCandle(sym, last, tf.ms, nowMs));
           if (next.length > 420) next.shift();
-        } else {
+        } else if (!wsActive) {
+          /* no live socket yet (or non-crypto feed) — keep the tape moving */
           const vol = (sym.vol24h / 100) * Math.sqrt(tf.ms / 86_400_000);
           const close = Math.max(1, last.close * (1 + gaussian() * vol * 1.2));
           next[next.length - 1] = {
@@ -85,6 +111,7 @@ export function useKlines(symbolId: string, intervalId: TimeframeId) {
 
     return () => {
       cancelled = true;
+      unsubscribeWs?.();
       clearInterval(live);
     };
   }, [sym, intervalId, klinesAction]);

@@ -38,8 +38,8 @@ export interface MarketSymbol {
 }
 
 export const SYMBOLS: MarketSymbol[] = [
-  { id: "BTCUSDT", name: "Bitcoin", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 67400, vol24h: 3.2 },
-  { id: "BTCUSD", name: "Bitcoin / US Dollar", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 67400, vol24h: 3.2 },
+  { id: "BTCUSDT", name: "Bitcoin", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 63400, vol24h: 3.2 },
+  { id: "BTCUSD", name: "Bitcoin / US Dollar", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 63400, vol24h: 3.2 },
   { id: "ETHUSDT", name: "Ethereum", market: "crypto", exchange: "Binance", binance: "ETHUSDT", decimals: 2, basePrice: 3520, vol24h: 4.1 },
   { id: "SOLUSDT", name: "Solana", market: "crypto", exchange: "Binance", binance: "SOLUSDT", decimals: 2, basePrice: 178.5, vol24h: 5.6 },
   { id: "BNBUSDT", name: "BNB", market: "crypto", exchange: "Binance", binance: "BNBUSDT", decimals: 2, basePrice: 585, vol24h: 3.4 },
@@ -48,7 +48,7 @@ export const SYMBOLS: MarketSymbol[] = [
   { id: "EURUSD", name: "Euro / US Dollar", market: "forex", exchange: "OANDA", decimals: 5, basePrice: 1.085, vol24h: 0.55 },
   { id: "GBPUSD", name: "British Pound / USD", market: "forex", exchange: "OANDA", decimals: 5, basePrice: 1.271, vol24h: 0.62 },
   { id: "USDJPY", name: "US Dollar / Yen", market: "forex", exchange: "OANDA", decimals: 3, basePrice: 156.3, vol24h: 0.58 },
-  { id: "XAUUSD", name: "Gold", market: "metals", exchange: "OANDA", decimals: 2, basePrice: 2412, vol24h: 1.1 },
+  { id: "XAUUSD", name: "Gold", market: "metals", exchange: "OANDA", decimals: 2, basePrice: 4330, vol24h: 1.1 },
   { id: "XAGUSD", name: "Silver", market: "metals", exchange: "OANDA", decimals: 3, basePrice: 31.2, vol24h: 1.8 },
   { id: "SPX500", name: "S&P 500", market: "indices", exchange: "S&P", decimals: 2, basePrice: 5462, vol24h: 0.9 },
   { id: "NAS100", name: "Nasdaq 100", market: "indices", exchange: "NASDAQ", decimals: 1, basePrice: 19652, vol24h: 1.2 },

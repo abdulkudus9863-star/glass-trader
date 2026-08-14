@@ -366,7 +366,12 @@ export default function Dashboard() {
             )}
           </AnimatePresence>
 
-          <SmcAnalysisDrawer open={smcOpen} onOpenChange={setSmcOpen} />
+          <SmcAnalysisDrawer
+            open={smcOpen}
+            onOpenChange={setSmcOpen}
+            symbolId={activePane.symbolId}
+            intervalId={activePane.intervalId}
+          />
           <IndicatorDrawer
             open={indicatorDrawerOpen}
             onOpenChange={setIndicatorDrawerOpen}

@@ -1,6 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import { useAction } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { subscribeBinanceTicker } from "@/lib/realtime";
 import {
   type MarketSymbol,
   fetchTicker24h,
@@ -148,6 +149,33 @@ export function useMarketSnapshot(symbolIds: string[]) {
     const binancePoll = setInterval(refreshBinance, 15_000);
     const livePoll = setInterval(refreshLive, 60_000);
 
+    /* live WebSocket ticks for every crypto symbol — these arrive ~1/s and
+       beat the 15s REST poll, so the tape moves at tick speed */
+    const wsUnsubs: (() => void)[] = [];
+    for (const s of symbols) {
+      if (!s.binance) continue;
+      realFeedsRef.current.add(s.id);
+      wsUnsubs.push(
+        subscribeBinanceTicker(s.binance, (t) => {
+          setTickers((prev) => {
+            const cur = prev[s.id];
+            if (!cur) return prev;
+            return {
+              ...prev,
+              [s.id]: {
+                ...cur,
+                price: t.price,
+                change24h: t.change24h,
+                high: Math.max(cur.high, t.high),
+                low: Math.min(cur.low, t.low),
+                spark: [...cur.spark.slice(-25), t.price],
+              },
+            };
+          });
+        }),
+      );
+    }
+
     /* keep the tape moving between polls — but only for symbols without a
        real feed; real quotes stay pinned to the market value */
     const tick = setInterval(() => {
@@ -176,6 +204,7 @@ export function useMarketSnapshot(symbolIds: string[]) {
     }, 1600);
 
     return () => {
+      for (const unsub of wsUnsubs) unsub();
       clearInterval(binancePoll);
       clearInterval(livePoll);
       clearInterval(tick);
