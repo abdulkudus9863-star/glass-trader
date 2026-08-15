@@ -139,7 +139,9 @@ function parseBinanceRow(row: unknown): Candle | null {
   const low = Number(row[3]);
   const close = Number(row[4]);
   const volume = Number(row[5]);
-  if (![rawTime, open, high, low, close].every((v) => Number.isFinite(v))) return null;
+  /* §7 — every field incl. volume must be finite; a NaN volume rejects the
+     whole row instead of silently becoming a fake 0. */
+  if (![rawTime, open, high, low, close, volume].every((v) => Number.isFinite(v))) return null;
   if (rawTime <= 0) return null;
   return {
     time: Math.floor(rawTime / 1000),
@@ -147,7 +149,7 @@ function parseBinanceRow(row: unknown): Candle | null {
     high,
     low,
     close,
-    volume: Number.isFinite(volume) ? volume : 0,
+    volume,
   };
 }
 
@@ -300,7 +302,8 @@ export interface LiveCandle {
 
 interface QuoteRow {
   price: number;
-  change24h: number;
+  /** null when the provider omitted it — never coerced to a fake 0. */
+  change24h: number | null;
   high: number;
   low: number;
 }
@@ -381,9 +384,10 @@ export const ticker = action({
         const r = row as { close?: string; percent_change?: string; high?: string; low?: string };
         const price = Number(r.close);
         if (!Number.isFinite(price)) return null;
+        const pct = Number(r.percent_change);
         return {
           price,
-          change24h: Number(r.percent_change) || 0,
+          change24h: Number.isFinite(pct) ? pct : null,
           high: Number(r.high) || price,
           low: Number(r.low) || price,
         };

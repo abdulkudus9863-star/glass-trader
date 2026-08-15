@@ -183,17 +183,31 @@ function connect(): void {
         }
       } else if (stream.endsWith("@kline") && raw.k) {
         const k = raw.k;
+        /* §6/§7 — every field must be a finite number from the provider.
+           A malformed frame is dropped, never coerced into 0 values. */
+        const rawTime = Number(k.t);
         const open = Number(k.o);
+        const high = Number(k.h);
+        const low = Number(k.l);
         const close = Number(k.c);
-        if (!Number.isFinite(open) || !Number.isFinite(close)) return;
+        const volume = Number(k.v);
+        if (
+          !Number.isFinite(rawTime) ||
+          rawTime <= 0 ||
+          ![open, high, low, close, volume].every((v) => Number.isFinite(v))
+        ) {
+          return;
+        }
+        /* inverted OHLC is mathematically impossible for a real market */
+        if (high < Math.max(open, close) || low > Math.min(open, close) || high < low) return;
         const kline: BinanceKlineUpdate = {
           symbol,
-          time: Math.floor((k.t ?? 0) / 1000),
+          time: Math.floor(rawTime / 1000),
           open,
-          high: Number(k.h) || Math.max(open, close),
-          low: Number(k.l) || Math.min(open, close),
+          high,
+          low,
           close,
-          volume: Number(k.v) || 0,
+          volume,
           isClosed: Boolean(k.x),
           receivedAt: Date.now(),
         };

@@ -284,7 +284,9 @@ function parseBinanceRow(row: unknown, timeframe: string): Candle | null {
   const low = Number(row[3]);
   const close = Number(row[4]);
   const volume = Number(row[5]);
-  if (![rawTime, open, high, low, close].every((v) => Number.isFinite(v))) return null;
+  /* §7 — every field incl. volume must be finite; a NaN volume rejects the
+     whole row instead of silently becoming a fake 0. */
+  if (![rawTime, open, high, low, close, volume].every((v) => Number.isFinite(v))) return null;
   if (rawTime <= 0) return null;
   return {
     time: Math.floor(rawTime / 1000) as UTCTimestamp,
@@ -292,7 +294,7 @@ function parseBinanceRow(row: unknown, timeframe: string): Candle | null {
     high,
     low,
     close,
-    volume: Number.isFinite(volume) ? volume : 0,
+    volume,
   };
 }
 
