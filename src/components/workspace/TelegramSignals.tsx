@@ -1,5 +1,5 @@
 import { api } from "@/convex/_generated/api";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { motion } from "framer-motion";
 import {
   Loader2,
@@ -8,7 +8,7 @@ import {
   ShieldAlert,
   Terminal,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -54,18 +54,18 @@ const TIER_STYLE: Record<string, string> = {
 const fmt = (ts: number) =>
   new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-/* default compose values — mirrors the spec dispatch example */
+/* empty compose defaults — the founder fills in real levels before dispatch */
 const DEFAULT_FORM = {
   bias: "LONG" as Bias,
   asset: "XAUUSD",
   tf: "15m",
-  entry: "$2,232.50 – $2,236.00",
-  sl: "$2,224.00",
-  tp1: "$2,260.00",
-  tp2: "$2,300.00",
-  confluence: "4/4 Lanes Aligned",
+  entry: "",
+  sl: "",
+  tp1: "",
+  tp2: "",
+  confluence: "",
   tier: "HIGH",
-  rr: "3.2",
+  rr: "",
 };
 
 export default function TelegramSignals() {
@@ -74,7 +74,6 @@ export default function TelegramSignals() {
   const authed = user != null;
 
   const docs = useQuery(api.signals.list, authed ? {} : "skip");
-  const createSignal = useMutation(api.signals.createSignal);
   const dispatchAction = useAction(api.telegram.dispatchSignal);
 
   const [form, setForm] = useState(DEFAULT_FORM);
@@ -84,47 +83,9 @@ export default function TelegramSignals() {
     message: string;
   } | null>(null);
 
-  /* seed a couple of example dispatches so the founder's feed is alive on first open */
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (!authed || docs === undefined || seededRef.current) return;
-    if (!isFounder || docs.length > 0) return;
-    seededRef.current = true;
-    const samples = [
-      { ...DEFAULT_FORM, ts: Date.now() - 2 * 60_000 },
-      {
-        bias: "SHORT" as Bias,
-        asset: "EURUSD",
-        tf: "4H",
-        entry: "1.0842 – 1.0858",
-        sl: "1.0881",
-        tp1: "1.0796",
-        tp2: "1.0752",
-        confluence: "2/4 Lanes Aligned",
-        tier: "LOW",
-        rr: "2.1",
-        ts: Date.now() - 45 * 60_000,
-      },
-    ];
-    for (const s of samples) {
-      void createSignal({
-        bias: s.bias,
-        asset: s.asset,
-        tf: s.tf,
-        entry: s.entry,
-        sl: s.sl,
-        tp1: s.tp1,
-        tp2: s.tp2,
-        confluence: s.confluence,
-        tier: s.tier,
-        rr: s.rr,
-        message: buildMessage(s),
-        status: "SIMULATED",
-        dispatchMode: "simulated",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authed, docs, isFounder, createSignal]);
+  /* The feed starts empty and only ever contains real dispatch attempts.
+     No example signals are seeded — a signal appears here only when the
+     founder actually composes and dispatches one. */
 
   const signals: FeedSignal[] = (docs ?? []).map((d) => ({
     id: d._id,

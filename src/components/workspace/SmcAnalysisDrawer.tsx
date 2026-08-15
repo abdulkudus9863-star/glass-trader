@@ -19,7 +19,9 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/convex/_generated/api";
+import { useAction } from "convex/react";
 import { useKlines } from "@/hooks/use-klines";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { Badge } from "@/components/ui/badge";
@@ -42,10 +44,12 @@ interface SignalRow {
   accent?: string;
 }
 
-const NEWS_ITEMS = [
-  "US NFP data cooling down interest rate expectations.",
-  "Middle East geopolitics maintaining long-term haven demand for Gold.",
-];
+interface NewsItem {
+  title: string;
+  source: string;
+  url: string;
+  publishedAt: string | null;
+}
 
 interface SmcAnalysisDrawerProps {
   open: boolean;
@@ -66,22 +70,55 @@ export default function SmcAnalysisDrawer({
 
   const ticker = tickers[symbolId];
   const lastClose = candles[candles.length - 1]?.close;
-  const price = ticker?.price ?? lastClose ?? sym.basePrice;
-  const change24h = ticker?.change24h ?? 0;
+  const price = ticker?.price ?? lastClose ?? null;
+  const change24h = ticker?.change24h ?? null;
 
-  const analysis = useMemo(
-    () =>
-      analyzeSmc({
-        symbolId,
-        intervalId,
-        candles,
-        price,
-        change24h,
-        decimals: sym.decimals,
-        assetName: sym.name,
-      }),
-    [symbolId, intervalId, candles, price, change24h, sym.decimals, sym.name],
-  );
+  const analysis = useMemo(() => {
+    if (price == null) return null;
+    return analyzeSmc({
+      symbolId,
+      intervalId,
+      candles,
+      price,
+      change24h: change24h ?? 0,
+      decimals: sym.decimals,
+      assetName: sym.name,
+    });
+  }, [symbolId, intervalId, candles, price, change24h, sym.decimals, sym.name]);
+
+  /* Real news for the macro ticker — never fabricated headlines. */
+  const newsAction = useAction(api.market.news);
+  const [news, setNews] = useState<NewsItem[] | null>(null);
+  const [newsStatus, setNewsStatus] = useState<"loading" | "ok" | "error">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setNewsStatus("loading");
+      try {
+        const res = await newsAction({ limit: 8 });
+        if (cancelled) return;
+        if (!res || res.length === 0) {
+          setNews(null);
+          setNewsStatus("error");
+          return;
+        }
+        setNews(res);
+        setNewsStatus("ok");
+      } catch {
+        if (!cancelled) {
+          setNews(null);
+          setNewsStatus("error");
+        }
+      }
+    };
+    void load();
+    const id = setInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [newsAction]);
 
   const verdict = analysis?.verdict ?? "WAIT";
   const verdictStyle: Record<string, string> = {
@@ -202,7 +239,7 @@ export default function SmcAnalysisDrawer({
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                     <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
                   </span>
-                  AI generated · live tape · {intervalId}
+                  Deterministic SMC · live tape · {intervalId}
                 </p>
               </div>
               <Badge
@@ -284,6 +321,18 @@ export default function SmcAnalysisDrawer({
                   </span>
                 </span>
               </div>
+
+              {!analysis && (
+                <div className="rounded-xl border border-dashed border-[#1B263B] px-4 py-8 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                    DATA UNAVAILABLE
+                  </p>
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    No live candle tape for {symbolId} on the {intervalId} chart
+                    — structure cannot be derived without real price data.
+                  </p>
+                </div>
+              )}
 
               {analysis && (
                 <>
@@ -444,17 +493,29 @@ export default function SmcAnalysisDrawer({
                 <Radio className="ml-auto size-3 text-emerald-400" />
               </div>
               <div className="overflow-hidden py-2">
-                <div className="ticker-track flex w-max items-center gap-8 px-2">
-                  {[...NEWS_ITEMS, ...NEWS_ITEMS].map((item, i) => (
-                    <span
-                      key={`${item}-${i}`}
-                      className="flex shrink-0 items-center gap-2 text-[11px] text-slate-300"
-                    >
-                      <span className="size-1 rounded-full bg-[#F4C430]" />
-                      {item}
-                    </span>
-                  ))}
-                </div>
+                {newsStatus === "ok" && news && news.length > 0 ? (
+                  <div className="ticker-track flex w-max items-center gap-8 px-2">
+                    {[...news, ...news].map((item, i) => (
+                      <a
+                        key={`${item.title}-${i}`}
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex shrink-0 items-center gap-2 text-[11px] text-slate-300 transition-colors hover:text-[#00F0FF]"
+                      >
+                        <span className="size-1 rounded-full bg-[#F4C430]" />
+                        <span className="max-w-[280px] truncate">{item.title}</span>
+                        <span className="text-[9px] text-slate-600">{item.source}</span>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="px-3.5 text-[11px] text-slate-500">
+                    {newsStatus === "loading"
+                      ? "Loading headlines…"
+                      : "Narrative data unavailable — no news provider returned articles."}
+                  </p>
+                )}
               </div>
               <p className="border-t border-white/5 px-3.5 py-2 text-[9px] text-muted-foreground">
                 AI signals are auto-generated from live tape and educational —

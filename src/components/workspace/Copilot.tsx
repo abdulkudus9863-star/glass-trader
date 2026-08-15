@@ -11,14 +11,15 @@ import {
   User,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useKlines } from "@/hooks/use-klines";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import {
   findSymbol,
   formatPercent,
   formatPrice,
-  hashString,
-  mulberry32,
+  type TimeframeId,
 } from "@/lib/market";
+import { analyzeSmc, type SmcSignal } from "@/lib/smc";
 import { cn } from "@/lib/utils";
 
 interface ChatMessage {
@@ -38,51 +39,86 @@ const CHIPS = [
   "XAUUSD SMC analysis",
 ];
 
-function makeReply(prompt: string, symbolId: string, price: number, change24h: number) {
+const COPILOT_TF: TimeframeId = "15m";
+
+/** Build an honest local analysis from the deterministic SMC engine over the
+ *  real candle tape. Never fabricates a price or a verdict. */
+function buildLocalAnalysis(
+  symbolId: string,
+  candles: ReturnType<typeof useKlines>["candles"],
+  price: number | null,
+  change24h: number | null,
+  timeframe: TimeframeId,
+): ChatMessage {
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
-  const rand = mulberry32(hashString(`${symbolId}-${prompt}-${new Date().toISOString().slice(0, 10)}`));
-  const roll = rand();
-  const rsiLike = 34 + rand() * 40;
-  const verdict: "LONG" | "SHORT" | "WAIT" =
-    rsiLike < 42 ? (roll < 0.7 ? "LONG" : "WAIT") : rsiLike > 62 ? (roll < 0.7 ? "SHORT" : "WAIT") : roll < 0.5 ? "WAIT" : roll < 0.75 ? "LONG" : "SHORT";
+  const lastClose = candles[candles.length - 1]?.close;
 
+  if (price == null || lastClose == null || candles.length < 30) {
+    return {
+      id: `a-${Date.now()}`,
+      role: "assistant",
+      text: "**DATA UNAVAILABLE** — I can't derive a read without a live candle tape for this asset.",
+      bullets: [
+        "No real candles are streaming for this symbol right now.",
+        "Once the feed is live, ask me again and I'll ground the answer in actual price action.",
+      ],
+      ts: Date.now(),
+    };
+  }
+
+  const smc = analyzeSmc({
+    symbolId,
+    intervalId: timeframe,
+    candles,
+    price: lastClose,
+    change24h: change24h ?? 0,
+    decimals: sym.decimals,
+    assetName: sym.name,
+  });
+
+  if (!smc) {
+    return {
+      id: `a-${Date.now()}`,
+      role: "assistant",
+      text: "**DATA UNAVAILABLE** — not enough candle history for a structure read yet.",
+      bullets: ["Indicators need roughly 30+ bars on the selected timeframe."],
+      ts: Date.now(),
+    };
+  }
+
+  const s: SmcSignal = smc.signal;
   const d = sym.decimals;
-  const rp = (v: number) => Math.round(v * 10 ** d) / 10 ** d;
-  const entry =
-    verdict === "LONG"
-      ? [rp(price * 0.994), rp(price * 0.998)]
-      : verdict === "SHORT"
-        ? [rp(price * 1.002), rp(price * 1.006)]
-        : [rp(price * 0.998), rp(price * 1.002)];
-  const sl =
-    verdict === "LONG" ? rp(entry[0] * 0.994) : rp(entry[1] * 1.006);
-  const tp = verdict === "LONG" ? rp(price * 1.02) : verdict === "SHORT" ? rp(price * 0.98) : rp(price * 1.01);
-  const risk = Math.max(Math.abs(entry[1] - sl), 1e-9);
-  const reward = Math.abs(verdict === "WAIT" ? tp - entry[1] : verdict === "LONG" ? tp - entry[1] : entry[0] - tp);
-  const rr = (Math.round((reward / risk) * 10) / 10).toFixed(1);
-
-  const reg = Math.abs(change24h) > 1 ? (change24h > 0 ? "trending up" : "trending down") : "ranging";
-
+  const f = (v: number) => formatPrice(v, d);
+  const verdict = smc.verdict;
   return {
-    verdict,
-    rr: `1:${rr}`,
-    bullets: [
-      `Live price ${formatPrice(price, d)} · 24h ${formatPercent(change24h)} — tape is ${reg}.`,
+    id: `a-${Date.now()}`,
+    role: "assistant",
+    text:
       verdict === "WAIT"
-        ? "No edge yet — momentum is mixed. I'd wait for a cleaner trigger."
-        : `Preference: ${verdict} into ${formatPrice(entry[0], d)} – ${formatPrice(entry[1], d)} with invalidation ${formatPrice(sl, d)}.`,
-      `Suggested target ${formatPrice(tp, d)} gives roughly 1:${rr} at current volatility.`,
+        ? `**WAIT** on ${symbolId} — ${smc.regime.toLowerCase()}, RSI ${smc.rsi.toFixed(1)}.`
+        : `**${verdict}** on ${symbolId} with a defined invalidation.`,
+    verdict,
+    rr: `1:${s.rrr.toFixed(1)}`,
+    bullets: [
+      `Live ${formatPrice(price, d)} · 24h ${change24h != null ? formatPercent(change24h) : "—"} · RSI ${smc.rsi.toFixed(1)} (${smc.rsiLabel.toLowerCase()}).`,
+      `Regime: ${smc.regime}. ${smc.structure.structureChange}`,
+      verdict === "WAIT"
+        ? `No edge yet — ${smc.structure.sweepZone.toLowerCase()} Watch the ${smc.watchZone ? `${f(smc.watchZone.bottom)} – ${f(smc.watchZone.top)}` : "swing"} zone for a trigger.`
+        : `Preference: ${verdict} into ${f(s.entryZone[0])} – ${f(s.entryZone[1])} with invalidation ${f(s.invalidation)}.`,
+      `Stop ${f(s.stopLoss)} · TP1 ${f(s.tp1)} · TP2 ${f(s.tp2)} — roughly 1:${s.rrr.toFixed(1)} at current ATR.`,
       "Confirm on the 15m/1H chart and size so a single stop-loss is under 1% of equity.",
     ],
+    ts: Date.now(),
   };
 }
 
 export default function Copilot({ symbolId }: { symbolId: string }) {
   const tickers = useMarketSnapshot([symbolId]);
   const ticker = tickers[symbolId];
+  const { candles } = useKlines(symbolId, COPILOT_TF);
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
-  const price = ticker?.price ?? sym.basePrice;
-  const change24h = ticker?.change24h ?? 0;
+  const price = ticker?.price ?? candles[candles.length - 1]?.close ?? null;
+  const change24h = ticker?.change24h ?? null;
 
   const history = useQuery(api.copilot.listMessages);
   const saveMessage = useMutation(api.copilot.saveMessage);
@@ -115,10 +151,10 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
   const intro: ChatMessage = {
     id: "intro",
     role: "assistant",
-    text: `I'm your AI copilot, anchored to live ${sym.id} tape (${formatPrice(
-      price,
-      sym.decimals,
-    )}). Ask me for a directional read, an SMC structure breakdown, or a risk check — I'll answer with data, not vibes.`,
+    text:
+      price == null
+        ? `I'm your AI copilot, anchored to live ${sym.id} tape. Ask me for a directional read, an SMC structure breakdown, or a risk check — I'll answer with data, not vibes.`
+        : `I'm your AI copilot, anchored to live ${sym.id} tape (${formatPrice(price, sym.decimals)}). Ask me for a directional read, an SMC structure breakdown, or a risk check — I'll answer with data, not vibes.`,
     ts: Date.now(),
   };
 
@@ -140,62 +176,98 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
     setDraft("");
     setTyping(true);
 
-    const fallback = (): ChatMessage => {
-      const reply = makeReply(text, symbolId, price, change24h);
-      return {
-        id: `a-${Date.now()}`,
+    let reply: ChatMessage;
+
+    if (price == null) {
+      /* No live tape — the AI gets nothing to anchor on, so answer honestly. */
+      reply = buildLocalAnalysis(symbolId, candles, null, change24h, COPILOT_TF);
+      setEngine("local");
+      void saveMessage({
         role: "assistant",
-        text:
-          reply.verdict === "WAIT"
-            ? "**WAIT** — no high-quality setup right now."
-            : `**${reply.verdict}** on ${sym.id} with a defined invalidation.`,
+        text: reply.text,
         verdict: reply.verdict,
         bullets: reply.bullets,
         rr: reply.rr,
-        ts: Date.now(),
-      };
-    };
-
-    let reply: ChatMessage;
-    try {
-      const res = await copilotAction({
-        symbolId,
-        price,
-        change24h,
-        prompt: text,
-        history: messages
-          .filter((m) => m.id !== "intro")
-          .slice(-8)
-          .map((m) => ({ role: m.role, content: m.text })),
+        model: "local",
       });
-      if (res?.ok) {
-        const verdict: "LONG" | "SHORT" | "WAIT" =
-          res.verdict === "LONG" || res.verdict === "SHORT" || res.verdict === "WAIT"
-            ? res.verdict
-            : "WAIT";
-        reply = {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          text:
-            verdict === "WAIT"
-              ? "**WAIT** — no high-quality setup right now."
-              : `**${verdict}** on ${sym.id} with a defined invalidation.`,
-          verdict,
-          bullets: res.bullets,
-          rr: res.rr,
-          ts: Date.now(),
-        };
-        setEngine(res.model);
-        void saveMessage({
-          role: "assistant",
-          text: reply.text,
-          verdict: reply.verdict,
-          bullets: reply.bullets,
-          rr: reply.rr,
-          model: res.model,
+    } else {
+      /* Structured deterministic snapshot — the AI interprets it, never
+         invents numbers. */
+      const smc = analyzeSmc({
+        symbolId,
+        intervalId: COPILOT_TF,
+        candles,
+        price: price ?? candles[candles.length - 1]?.close ?? 0,
+        change24h: change24h ?? 0,
+        decimals: sym.decimals,
+        assetName: sym.name,
+      });
+      const snapshot = smc
+        ? {
+            rsi: smc.rsi,
+            regime: smc.regime,
+            verdict: smc.verdict,
+            entry: smc.signal.entryZone,
+            stopLoss: smc.signal.stopLoss,
+            tp1: smc.signal.tp1,
+            tp2: smc.signal.tp2,
+            invalidation: smc.signal.invalidation,
+            rrr: smc.signal.rrr,
+          }
+        : null;
+
+      try {
+        const res = await copilotAction({
+          symbolId,
+          price,
+          change24h: change24h ?? 0,
+          prompt: text,
+          snapshot: snapshot ?? undefined,
+          history: messages
+            .filter((m) => m.id !== "intro")
+            .slice(-8)
+            .map((m) => ({ role: m.role, content: m.text })),
         });
-      } else {
-        reply = fallback();
+        if (res?.ok) {
+          const verdict: "LONG" | "SHORT" | "WAIT" =
+            res.verdict === "LONG" || res.verdict === "SHORT" || res.verdict === "WAIT"
+              ? res.verdict
+              : "WAIT";
+          reply = {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            text:
+              verdict === "WAIT"
+                ? "**WAIT** — no high-quality setup right now."
+                : `**${verdict}** on ${sym.id} with a defined invalidation.`,
+            verdict,
+            bullets: res.bullets,
+            rr: res.rr,
+            ts: Date.now(),
+          };
+          setEngine(res.model);
+          void saveMessage({
+            role: "assistant",
+            text: reply.text,
+            verdict: reply.verdict,
+            bullets: reply.bullets,
+            rr: reply.rr,
+            model: res.model,
+          });
+        } else {
+          reply = buildLocalAnalysis(symbolId, candles, price, change24h, COPILOT_TF);
+          setEngine("local");
+          void saveMessage({
+            role: "assistant",
+            text: reply.text,
+            verdict: reply.verdict,
+            bullets: reply.bullets,
+            rr: reply.rr,
+            model: "local",
+          });
+        }
+      } catch {
+        reply = buildLocalAnalysis(symbolId, candles, price, change24h, COPILOT_TF);
         setEngine("local");
         void saveMessage({
           role: "assistant",
@@ -206,18 +278,8 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
           model: "local",
         });
       }
-    } catch {
-      reply = fallback();
-      setEngine("local");
-      void saveMessage({
-        role: "assistant",
-        text: reply.text,
-        verdict: reply.verdict,
-        bullets: reply.bullets,
-        rr: reply.rr,
-        model: "local",
-      });
     }
+
     setMessages((m) => [...m, reply]);
     setTyping(false);
   };
@@ -255,11 +317,16 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
           <span className="font-bold">{engineLabel}</span>
         </div>
         <div className="glass-chip flex items-center gap-2 rounded-lg px-3 py-1.5 font-mono text-[11px]">
-          <span className="text-slate-500">LIVE</span>
+          <span className="text-slate-500">TAPE</span>
           <span className="font-semibold text-foreground">{sym.id}</span>
-          <span className={change24h >= 0 ? "text-[#00E676]" : "text-[#FF1744]"}>
-            {formatPrice(price, sym.decimals)} ({formatPercent(change24h)})
-          </span>
+          {price != null ? (
+            <span className={cn(change24h != null && change24h >= 0 ? "text-[#00E676]" : "text-[#FF1744]")}>
+              {formatPrice(price, sym.decimals)}
+              {change24h != null && ` (${formatPercent(change24h)})`}
+            </span>
+          ) : (
+            <span className="text-amber-400">DATA UNAVAILABLE</span>
+          )}
         </div>
       </div>
 
@@ -406,7 +473,7 @@ export default function Copilot({ symbolId }: { symbolId: string }) {
       <p className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <Sparkles className="size-3 text-[#A855F7]" />
         {engine === "local"
-          ? "OpenAI key not set — running the built-in engine. Add OPENAI_API_KEY in the project keys to go live."
+          ? "OpenAI key not set — running the built-in deterministic engine over the live tape. Add OPENAI_API_KEY in the project keys to go live."
           : "Conversation history is persisted to your account on the backend."}
       </p>
     </div>

@@ -1,16 +1,28 @@
 /* ============================================================================
    RADAR — the 4-lane market pipeline.
+
    Four independent analysis lanes (Technical, Flow, Narrative, Macro) each
-   produce a verdict without echo-chamber overlap; a confluence summary scores
-   how many lanes agree. Deterministic per symbol/timeframe/seed so the output
-   is stable but re-runnable.
+   produce a verdict without echo-chamber overlap; a weighted confluence
+   model merges them into a single score (0..100) with a setup grade.
+
+   NO random data. Every lane is a pure function of the real inputs passed
+   in via LiveContext:
+     - Technical ← deterministic indicators over the live candle tape
+     - Flow      ← real derivatives data (Binance futures OI / funding / L/S)
+     - Narrative ← real news items with keyword sentiment
+     - Macro     ← real DXY / gold / SPX quotes
+
+   When the required input for a lane is missing, the lane is marked
+   `available: false` and consumers must render DATA UNAVAILABLE instead of
+   inventing values.
    ========================================================================== */
 
-import { gaussian, hashString, mulberry32 } from "./market";
+import type { LatestIndicators } from "./indicators";
 
 export type LaneId = "T" | "F" | "N" | "M";
 export type Verdict = "BULL" | "BEAR" | "NEUTRAL";
 export type Tier = "HIGH" | "MID" | "LOW";
+export type Grade = "A+" | "A" | "B" | "C" | "NO TRADE";
 
 export interface LaneMetric {
   label: string;
@@ -24,7 +36,8 @@ export interface LaneResult {
   tagline: string;
   verdict: Verdict;
   tier: Tier;
-  score: number; // 0..100
+  score: number; // 0..100 (0 when unavailable)
+  available: boolean;
   metrics: LaneMetric[];
   narrative: string;
 }
@@ -34,221 +47,482 @@ export interface RadarResult {
   confluence: {
     aligned: number; // lanes agreeing with the majority bias
     total: number;
+    available: number;
     bias: Verdict;
     tier: Tier;
+    grade: Grade;
+    score: number; // weighted 0..100 over available lanes
     summary: string;
   };
   generatedAt: number;
 }
 
-/** Optional live tape context — when present, the Technical lane reads real
- *  price action instead of the seeded model. */
+/* ------------------------------ real inputs ------------------------------ */
+
+export interface FlowData {
+  /** Total open interest in base/quote (USD notional). */
+  openInterest: number;
+  /** % change vs the previous snapshot (null on first read). */
+  openInterestChangePct: number | null;
+  fundingRate: number | null;
+  longShortRatio: number | null;
+  markPrice: number | null;
+  source: string;
+}
+
+export interface NewsItem {
+  title: string;
+  source: string;
+  url: string;
+  publishedAt: string | null;
+  sentiment: "pos" | "neg" | "neu";
+}
+
+export interface MacroQuote {
+  price: number;
+  change24h: number | null;
+}
+
+export interface MacroData {
+  dxy: MacroQuote | null;
+  gold: MacroQuote | null;
+  spx: MacroQuote | null;
+}
+
 export interface LiveContext {
   price: number;
   change24h: number;
-  rsi: number | null;
-  ema200: number | null;
+  indicators: LatestIndicators | null;
+  flow: FlowData | null;
+  news: NewsItem[] | null;
+  macro: MacroData | null;
 }
 
-const pick = <T,>(rand: () => number, arr: T[]): T =>
-  arr[Math.floor(rand() * arr.length)];
+/* ------------------------------- helpers -------------------------------- */
+
+function clamp(v: number, lo = 0, hi = 100): number {
+  return Math.max(lo, Math.min(hi, Math.round(v)));
+}
 
 function verdictFromScore(score: number): { verdict: Verdict; tier: Tier } {
-  if (score >= 62) return { verdict: "BULL", tier: score >= 78 ? "HIGH" : "MID" };
-  if (score <= 38) return { verdict: "BEAR", tier: score <= 22 ? "HIGH" : "MID" };
+  if (score >= 58) return { verdict: "BULL", tier: score >= 76 ? "HIGH" : "MID" };
+  if (score <= 42) return { verdict: "BEAR", tier: score <= 24 ? "HIGH" : "MID" };
   return { verdict: "NEUTRAL", tier: "LOW" };
 }
 
-/* ------------------------------ lanes ------------------------------ */
+/** Keyword-based sentiment — deterministic, not AI, never fabricated. */
+export function sentimentOf(title: string): "pos" | "neg" | "neu" {
+  const t = title.toLowerCase();
+  const pos = [
+    "surge", "rally", "gain", "rise", "rises", "record", "high", "bull",
+    "inflow", "adoption", "approval", "breakout", "soar", "jump", "boost",
+  ];
+  const neg = [
+    "slump", "fall", "falls", "drop", "plunge", "crash", "bear", "outflow",
+    "ban", "lawsuit", "fraud", "hack", "loses", "loss", "dip", "fear",
+  ];
+  let p = 0;
+  let n = 0;
+  for (const w of pos) if (t.includes(w)) p++;
+  for (const w of neg) if (t.includes(w)) n++;
+  if (p > n) return "pos";
+  if (n > p) return "neg";
+  return "neu";
+}
 
-function technicalLane(rand: () => number, live: LiveContext | null = null): LaneResult {
-  const rsiVal = live?.rsi != null ? Math.max(1, Math.min(99, live.rsi)) : 28 + rand() * 46; // 28..74
-  const emaBull =
-    live?.ema200 != null ? live.price > live.ema200 : rand() > 0.5;
-  const macdPos = rand() > 0.45;
-  const score = Math.round(
-    (rsiVal < 40 ? 78 : rsiVal > 62 ? 22 : 50) + (emaBull ? 8 : -8) + (macdPos ? 6 : -6),
-  );
-  const { verdict, tier } = verdictFromScore(score);
+/* -------------------------------- lanes --------------------------------- */
+
+function technicalLane(live: LiveContext): LaneResult {
+  const ind = live.indicators;
+  const noData: LaneResult = {
+    lane: "T",
+    name: "Technical",
+    tagline: "Price action & momentum",
+    verdict: "NEUTRAL",
+    tier: "LOW",
+    score: 0,
+    available: false,
+    metrics: [
+      { label: "Tape", value: "DATA UNAVAILABLE", tone: "neu" },
+      { label: "Indicators", value: "No candle feed", tone: "neu" },
+    ],
+    narrative:
+      "No candle feed is available, so the technical lane cannot score the tape.",
+  };
+  if (!ind || !Number.isFinite(live.price)) return noData;
+
+  const rsi = ind.rsi14;
+  const macdHist = ind.macdHistogram;
+  const sma20 = ind.sma20;
+  const sma50 = ind.sma50;
+  const atr = ind.atr14;
+
+  let score = 50;
+  const reasons: string[] = [];
+
+  /* RSI momentum — weighted by distance from 50 */
+  if (rsi != null) {
+    score += (rsi - 50) * 0.9;
+    if (rsi > 62) reasons.push("overbought momentum");
+    else if (rsi < 38) reasons.push("oversold momentum");
+    else if (rsi > 55) reasons.push("bullish momentum");
+    else if (rsi < 45) reasons.push("bearish momentum");
+  }
+
+  /* EMA 200 trend filter */
+  if (ind.ema200 != null) {
+    score += live.price > ind.ema200 ? 14 : -14;
+    reasons.push(live.price > ind.ema200 ? "above EMA 200" : "below EMA 200");
+  }
+
+  /* MACD histogram direction */
+  if (macdHist != null) {
+    score += macdHist > 0 ? 10 : -10;
+    reasons.push(macdHist > 0 ? "MACD histogram positive" : "MACD histogram negative");
+  }
+
+  /* SMA 20/50 structure */
+  if (sma20 != null && sma50 != null) {
+    score += sma20 > sma50 ? 6 : -6;
+  }
+
+  const finalScore = clamp(score, 4, 96);
+  const { verdict, tier } = verdictFromScore(finalScore);
+
   return {
     lane: "T",
     name: "Technical",
     tagline: "Price action & momentum",
     verdict,
     tier,
-    score: Math.max(4, Math.min(96, score)),
+    score: finalScore,
+    available: true,
     metrics: [
       {
-        label: "EMA 200",
-        value: live?.ema200 != null
-          ? `${emaBull ? "Above" : "Below"} EMA200 ${live.ema200.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
-          : emaBull ? "Above EMA200" : "Below EMA200",
-        tone: emaBull ? "pos" : "neg",
+        label: "RSI 14",
+        value: rsi != null ? rsi.toFixed(1) : "—",
+        tone: rsi == null ? "neu" : rsi > 62 ? "neg" : rsi < 38 ? "pos" : rsi >= 50 ? "pos" : "neg",
       },
-      { label: "RSI 14", value: rsiVal.toFixed(1), tone: rsiVal < 40 ? "pos" : rsiVal > 62 ? "neg" : "neu" },
-      { label: "MACD", value: macdPos ? "Histogram > 0" : "Histogram < 0", tone: macdPos ? "pos" : "neg" },
+      {
+        label: "EMA 200",
+        value: ind.ema200 != null ? (live.price > ind.ema200 ? "Above" : "Below") : "—",
+        tone: ind.ema200 == null ? "neu" : live.price > ind.ema200 ? "pos" : "neg",
+      },
+      {
+        label: "MACD",
+        value: macdHist == null ? "—" : macdHist > 0 ? "Hist +" : "Hist −",
+        tone: macdHist == null ? "neu" : macdHist > 0 ? "pos" : "neg",
+      },
+      {
+        label: "ATR 14",
+        value:
+          atr != null
+            ? `${atr.toLocaleString("en-US", { maximumFractionDigits: 2 })} (${((atr / live.price) * 100).toFixed(2)}%)`
+            : "—",
+        tone: "neu",
+      },
     ],
     narrative:
-      verdict === "BULL"
-        ? "Momentum is aligned — pullbacks into the fast EMAs are being bought."
-        : verdict === "BEAR"
-          ? "Structure is rolling over — rallies into resistance are being sold."
-          : "Range-bound tape; momentum is not yet committed to a direction.",
+      reasons.length > 0
+        ? `Read: ${reasons.join(", ")}.`
+        : "Not enough history for the indicator suite yet.",
   };
 }
 
-function flowLane(rand: () => number): LaneResult {
-  const oi = (rand() - 0.5) * 12; // OI % change
-  const funding = (rand() - 0.42) * 0.06; // funding rate
-  const longRatio = 0.4 + rand() * 0.32;
-  const score = Math.round(
-    (oi > 1.5 ? 72 : oi < -1.5 ? 30 : 50) + (funding < 0 ? 10 : funding > 0.02 ? -10 : 0),
-  );
-  const { verdict, tier } = verdictFromScore(score);
+function flowLane(live: LiveContext): LaneResult {
+  const f = live.flow;
+  const noData: LaneResult = {
+    lane: "F",
+    name: "Flow",
+    tagline: "Order-flow & positioning",
+    verdict: "NEUTRAL",
+    tier: "LOW",
+    score: 0,
+    available: false,
+    metrics: [
+      { label: "Open Interest", value: "DATA SOURCE UNAVAILABLE", tone: "neu" },
+      { label: "Funding", value: "—", tone: "neu" },
+      { label: "Long / Short", value: "—", tone: "neu" },
+    ],
+    narrative:
+      "Derivatives data is only available for crypto pairs with a public futures feed. No feed is configured for this asset.",
+  };
+  if (!f) return noData;
+
+  let score = 50;
+  const reasons: string[] = [];
+
+  /* OI delta — rising OI confirms participation, direction from funding */
+  if (f.openInterestChangePct != null) {
+    if (f.openInterestChangePct > 1.5) {
+      score += f.fundingRate != null && f.fundingRate < 0 ? 10 : 4;
+      reasons.push("open interest building");
+    } else if (f.openInterestChangePct < -1.5) {
+      score -= 6;
+      reasons.push("open interest shrinking");
+    }
+  }
+
+  /* Funding — heavily positive funding = crowded longs (bearish risk) */
+  if (f.fundingRate != null) {
+    const fr = f.fundingRate * 100;
+    if (fr > 0.02) {
+      score -= 12;
+      reasons.push("crowded long funding");
+    } else if (fr < -0.01) {
+      score += 12;
+      reasons.push("negative funding (short crowding)");
+    }
+  }
+
+  /* Long/short account ratio */
+  if (f.longShortRatio != null) {
+    if (f.longShortRatio > 1.15) {
+      score -= 8;
+      reasons.push("longs crowded");
+    } else if (f.longShortRatio < 0.85) {
+      score += 8;
+      reasons.push("shorts dominant");
+    }
+  }
+
+  const finalScore = clamp(score, 4, 96);
+  const { verdict, tier } = verdictFromScore(finalScore);
+
   return {
     lane: "F",
     name: "Flow",
     tagline: "Order-flow & positioning",
     verdict,
     tier,
-    score: Math.max(4, Math.min(96, score)),
+    score: finalScore,
+    available: true,
     metrics: [
-      { label: "Open Interest", value: `${oi >= 0 ? "+" : ""}${oi.toFixed(2)}%`, tone: oi > 1.5 ? "pos" : oi < -1.5 ? "neg" : "neu" },
-      { label: "Funding", value: `${(funding * 100).toFixed(3)}%`, tone: funding < 0 ? "pos" : "neu" },
-      { label: "Long / Short", value: `${(longRatio * 100).toFixed(0)} / ${(100 - longRatio * 100).toFixed(0)}`, tone: "neu" },
+      {
+        label: "Open Interest",
+        value: `${f.openInterest.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${f.openInterestChangePct != null ? `(${f.openInterestChangePct >= 0 ? "+" : ""}${f.openInterestChangePct.toFixed(2)}%)` : ""}`,
+        tone: f.openInterestChangePct == null ? "neu" : f.openInterestChangePct > 1.5 ? "pos" : f.openInterestChangePct < -1.5 ? "neg" : "neu",
+      },
+      {
+        label: "Funding",
+        value: f.fundingRate != null ? `${(f.fundingRate * 100).toFixed(4)}%` : "—",
+        tone: f.fundingRate == null ? "neu" : f.fundingRate > 0.02 ? "neg" : f.fundingRate < -0.01 ? "pos" : "neu",
+      },
+      {
+        label: "Long / Short",
+        value: f.longShortRatio != null ? `${f.longShortRatio.toFixed(2)} : 1` : "—",
+        tone: f.longShortRatio == null ? "neu" : f.longShortRatio > 1.15 ? "neg" : f.longShortRatio < 0.85 ? "pos" : "neu",
+      },
     ],
     narrative:
-      verdict === "BULL"
-        ? "Positioning is building long-side — OI rising with price confirms participation."
-        : verdict === "BEAR"
-          ? "Leveraged longs are crowding — funding is elevated and vulnerable to squeezes."
-          : "Flow is balanced; neither side is pressing into size yet.",
+      reasons.length > 0
+        ? `Read: ${reasons.join(", ")}. Source: ${f.source}.`
+        : "Derivatives positioning is balanced — no crowd to fade yet.",
   };
 }
 
-function narrativeLane(rand: () => number): LaneResult {
-  const etf = pick(rand, ["Net inflow +$184M", "Net inflow +$92M", "Net outflow −$57M", "Flat"]);
-  const fed = pick(rand, ["Dovish cut signals", "Hawkish hold", "Data-dependent stance"]);
-  const headlines = pick(rand, [
-    "ETF accumulation accelerating",
-    "Macro headlines supportive for risk",
-    "Cautious tone across the tape",
-    "Bid-side news flow dominant",
-  ]);
-  const score = Math.round(
-    (etf.startsWith("Net inflow") ? 20 : etf.startsWith("Net outflow") ? -16 : 0) +
-      (fed.startsWith("Dovish") ? 12 : fed.startsWith("Hawkish") ? -12 : 0) +
-      rand() * 12,
-  );
-  const { verdict, tier } = verdictFromScore(score + 50);
+function narrativeLane(live: LiveContext): LaneResult {
+  const items = live.news;
+  const noData: LaneResult = {
+    lane: "N",
+    name: "Narrative",
+    tagline: "Headlines & sentiment",
+    verdict: "NEUTRAL",
+    tier: "LOW",
+    score: 0,
+    available: false,
+    metrics: [
+      { label: "Headlines", value: "Narrative data unavailable", tone: "neu" },
+    ],
+    narrative: "No news feed is currently returning articles for this market.",
+  };
+  if (!items || items.length === 0) return noData;
+
+  let pos = 0;
+  let neg = 0;
+  for (const n of items) {
+    if (n.sentiment === "pos") pos++;
+    else if (n.sentiment === "neg") neg++;
+  }
+  const total = items.length;
+  const score = clamp(50 + ((pos - neg) / total) * 42, 8, 92);
+  const { verdict, tier } = verdictFromScore(score);
+
   return {
     lane: "N",
     name: "Narrative",
-    tagline: "ETF flows & headlines",
+    tagline: "Headlines & sentiment",
     verdict,
     tier,
-    score: Math.max(4, Math.min(96, Math.round(50 + score))),
+    score,
+    available: true,
     metrics: [
-      { label: "ETF Net Flows", value: etf, tone: etf.startsWith("Net inflow") ? "pos" : etf.startsWith("Net outflow") ? "neg" : "neu" },
-      { label: "Fed Signals", value: fed, tone: fed.startsWith("Dovish") ? "pos" : fed.startsWith("Hawkish") ? "neg" : "neu" },
-      { label: "Headline Tone", value: headlines, tone: "neu" },
+      {
+        label: "Headlines",
+        value: `${total} articles · ${pos} pos / ${neg} neg`,
+        tone: pos > neg ? "pos" : neg > pos ? "neg" : "neu",
+      },
+      {
+        label: "Top Story",
+        value: items[0]?.title.slice(0, 52) ?? "—",
+        tone: items[0]?.sentiment ?? "neu",
+      },
     ],
     narrative:
       verdict === "BULL"
-        ? "Institutional money is rotating in — flows and headlines are compounding demand."
+        ? "Recent headlines skew constructive — institutional and macro flows are being framed positively."
         : verdict === "BEAR"
-          ? "The narrative is turning defensive — flows are retreating, not accumulating."
-          : "News flow is mixed; no single story is driving allocation yet.",
+          ? "Recent headlines skew cautious — negative framing is dominating the tape."
+          : "Headline sentiment is mixed; no single story is driving allocation.",
   };
 }
 
-function macroLane(rand: () => number): LaneResult {
-  const dxy = (rand() - 0.52) * 2.2; // DXY % move
-  const gold = 0.4 + rand() * 1.6; // gold strength
-  const risk = rand();
-  const score = Math.round(
-    (dxy < -0.3 ? 18 : dxy > 0.3 ? -14 : 2) + (gold > 1.2 ? 12 : 0) + (risk > 0.6 ? 12 : 0),
-  );
-  const { verdict, tier } = verdictFromScore(score + 50);
+function macroLane(live: LiveContext): LaneResult {
+  const m = live.macro;
+  const noData: LaneResult = {
+    lane: "M",
+    name: "Macro",
+    tagline: "DXY, gold & risk appetite",
+    verdict: "NEUTRAL",
+    tier: "LOW",
+    score: 0,
+    available: false,
+    metrics: [
+      { label: "DXY", value: "DATA SOURCE UNAVAILABLE", tone: "neu" },
+      { label: "Gold", value: "—", tone: "neu" },
+      { label: "S&P 500", value: "—", tone: "neu" },
+    ],
+    narrative:
+      "Macro quotes (DXY / gold / S&P 500) need a live provider for this region — none is configured.",
+  };
+  if (!m || (m.dxy == null && m.gold == null && m.spx == null)) return noData;
+
+  let score = 50;
+  const reasons: string[] = [];
+
+  /* DXY — a falling dollar is a tailwind for risk & metals */
+  if (m.dxy?.change24h != null) {
+    score += m.dxy.change24h < -0.15 ? 14 : m.dxy.change24h > 0.15 ? -14 : 0;
+    reasons.push(m.dxy.change24h < -0.15 ? "dollar soft" : m.dxy.change24h > 0.15 ? "dollar firm" : "dollar flat");
+  } else if (m.dxy) {
+    score += m.dxy.price > 0 ? 0 : 0; // price-only, no bias
+  }
+
+  /* Gold — haven strength often coincides with risk-off; treat as neutral
+     macro signal with a small tilt */
+  if (m.gold?.change24h != null) {
+    score += m.gold.change24h > 0.5 ? 4 : m.gold.change24h < -0.5 ? -4 : 0;
+    reasons.push(`gold ${m.gold.change24h >= 0 ? "up" : "down"} 24h`);
+  }
+
+  /* S&P 500 — broad risk appetite */
+  if (m.spx?.change24h != null) {
+    score += m.spx.change24h > 0.3 ? 12 : m.spx.change24h < -0.3 ? -12 : 0;
+    reasons.push(m.spx.change24h > 0.3 ? "equities risk-on" : m.spx.change24h < -0.3 ? "equities risk-off" : "equities flat");
+  }
+
+  const finalScore = clamp(score, 4, 96);
+  const { verdict, tier } = verdictFromScore(finalScore);
+
+  const quote = (q: MacroQuote | null, decimals: number) =>
+    q == null
+      ? "—"
+      : `${q.price.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}${q.change24h != null ? ` (${q.change24h >= 0 ? "+" : ""}${q.change24h.toFixed(2)}%)` : ""}`;
+
   return {
     lane: "M",
     name: "Macro",
     tagline: "DXY, gold & risk appetite",
     verdict,
     tier,
-    score: Math.max(4, Math.min(96, Math.round(50 + score))),
+    score: finalScore,
+    available: true,
     metrics: [
-      { label: "DXY", value: `${dxy >= 0 ? "+" : ""}${dxy.toFixed(2)}%`, tone: dxy < -0.3 ? "pos" : dxy > 0.3 ? "neg" : "neu" },
-      { label: "Gold Trend", value: `+${gold.toFixed(2)}%`, tone: gold > 1.2 ? "pos" : "neu" },
-      { label: "Risk Sentiment", value: risk > 0.6 ? "Risk-on" : risk < 0.35 ? "Risk-off" : "Mixed", tone: risk > 0.6 ? "pos" : risk < 0.35 ? "neg" : "neu" },
+      { label: "DXY", value: quote(m.dxy, 2), tone: m.dxy?.change24h == null ? "neu" : m.dxy.change24h < -0.15 ? "pos" : m.dxy.change24h > 0.15 ? "neg" : "neu" },
+      { label: "Gold", value: quote(m.gold, 2), tone: m.gold?.change24h == null ? "neu" : m.gold.change24h < -0.5 ? "neg" : "pos" },
+      { label: "S&P 500", value: quote(m.spx, 2), tone: m.spx?.change24h == null ? "neu" : m.spx.change24h < -0.3 ? "neg" : "pos" },
     ],
     narrative:
-      verdict === "BULL"
-        ? "Dollar softness plus haven demand is a tailwind — risk appetite is broadening."
-        : verdict === "BEAR"
-          ? "The dollar is firm and risk appetite is contracting — headwinds for upside."
-          : "Macro cross-currents are balanced; the dollar is not yet a trend factor.",
+      reasons.length > 0
+        ? `Read: ${reasons.join(", ")}.`
+        : "Macro quotes are live but flat — no directional cross-current today.",
   };
 }
 
-/* --------------------------- entry point --------------------------- */
+/* ------------------------------ confluence ------------------------------ */
 
-const GLOBAL_HEADLINES = [
-  "US NFP data cooling down interest rate expectations",
-  "Middle East geopolitics maintaining long-term haven demand for Gold",
-  "Central bank rhetoric leaning accommodative this week",
-  "Institutional desks rotating from cash into crypto ETPs",
-];
+export function gradeFor(score: number): Grade {
+  if (score >= 85) return "A+";
+  if (score >= 72) return "A";
+  if (score >= 60) return "B";
+  if (score >= 50) return "C";
+  return "NO TRADE";
+}
+
+const WEIGHTS: Record<LaneId, number> = { T: 0.32, F: 0.26, N: 0.16, M: 0.26 };
 
 export function analyzeLanes(
   symbolId: string,
   timeframe: string,
-  seedOffset = 0,
+  _seedOffset = 0,
   live: LiveContext | null = null,
 ): RadarResult {
-  const rand = mulberry32(hashString(`radar-${symbolId}-${timeframe}-${seedOffset}`));
-  const lanes = [
-    technicalLane(rand, live),
-    flowLane(rand),
-    narrativeLane(rand),
-    macroLane(rand),
+  const ctx = live ?? {
+    price: 0,
+    change24h: 0,
+    indicators: null,
+    flow: null,
+    news: null,
+    macro: null,
+  };
+
+  const lanes: LaneResult[] = [
+    technicalLane(ctx),
+    flowLane(ctx),
+    narrativeLane(ctx),
+    macroLane(ctx),
   ];
 
-  /* Confluence: count lanes agreeing with the majority verdict. */
+  const available = lanes.filter((l) => l.available);
   const bullCount = lanes.filter((l) => l.verdict === "BULL").length;
   const bearCount = lanes.filter((l) => l.verdict === "BEAR").length;
   const bias: Verdict = bullCount >= bearCount ? "BULL" : "BEAR";
   const aligned = Math.max(bullCount, bearCount);
   const tier: Tier = aligned >= 3 ? "HIGH" : aligned === 2 ? "MID" : "LOW";
 
+  /* Weighted confluence over available lanes — missing lanes don't drag the
+     score, they just don't vote. */
+  let weighted = 0;
+  let weightSum = 0;
+  for (const l of lanes) {
+    if (!l.available) continue;
+    weighted += WEIGHTS[l.lane] * l.score;
+    weightSum += WEIGHTS[l.lane];
+  }
+  const score = weightSum > 0 ? Math.round(weighted / weightSum) : 0;
+  const grade = gradeFor(score);
+
   const summary =
-    aligned >= 3
-      ? `${aligned}/${lanes.length} lanes aligned ${bias} — a high-conviction setup across independent lenses.`
-      : aligned === 2
-        ? `${aligned}/${lanes.length} lanes aligned ${bias} — a tradable lean, but confirm on the chart first.`
-        : `Mixed tape — ${lanes.length - aligned}/${lanes.length} lanes disagree. Stand aside or wait for alignment.`;
+    available.length === 0
+      ? "No data feeds are available — every lane is showing DATA UNAVAILABLE. Configure live providers to unlock the radar."
+      : score >= 72
+        ? `${available.length}/${lanes.length} lanes reporting, ${aligned} aligned ${bias} — weighted confluence ${score}/100 (${grade}).`
+        : score >= 50
+          ? `${available.length}/${lanes.length} lanes reporting, ${aligned} aligned ${bias} — confluence ${score}/100 (${grade}); confirm on the chart.`
+          : `Confluence ${score}/100 (${grade}) — conflicting or weak signals across lanes. Stand aside.`;
 
   return {
     lanes,
-    confluence: { aligned, total: lanes.length, bias, tier, summary },
+    confluence: {
+      aligned,
+      total: lanes.length,
+      available: available.length,
+      bias,
+      tier,
+      grade,
+      score,
+      summary,
+    },
     generatedAt: Date.now(),
   };
-}
-
-export function headlines(seedOffset = 0): string[] {
-  const rand = mulberry32(hashString(`news-${seedOffset}`));
-  const shuffled = [...GLOBAL_HEADLINES].sort(() => rand() - 0.5);
-  return shuffled.slice(0, 3);
-}
-
-/** Tiny helper so Radar UI can display a stable seeded spark of lane scores. */
-export function laneScoreCurve(symbolId: string, seedOffset = 0): number[] {
-  const rand = mulberry32(hashString(`curve-${symbolId}-${seedOffset}`));
-  const out: number[] = [];
-  let v = 50;
-  for (let i = 0; i < 22; i++) {
-    v = Math.max(8, Math.min(92, v + gaussian(rand) * 12));
-    out.push(Math.round(v));
-  }
-  return out;
 }

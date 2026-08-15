@@ -262,6 +262,8 @@ export function compileStrategy(
     invalidation = rp(entryZone[1] * 1.004);
   }
 
+  const conditions = detectConditions(text);
+
   return {
     id: `strat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     name: nameFromPrompt(text, asset),
@@ -274,11 +276,11 @@ export function compileStrategy(
     takeProfits: [tp1, tp2],
     invalidation,
     riskReward: riskReward > 0 ? riskReward : 1,
-    conditions: detectConditions(text),
+    conditions,
     confluence: [
-      `${bias === "LONG" ? "Bullish" : bias === "SHORT" ? "Bearish" : "Neutral"} momentum alignment`,
-      "Order-flow context supports the directional view",
-      "Macro backdrop consistent — no conflicting catalysts",
+      `Levels anchored to live ${asset} tape (${price.toLocaleString("en-US", { maximumFractionDigits: d })})`,
+      `Triggers parsed: ${conditions.length > 0 ? conditions.join("; ") : "price reaction at the active zone"}`,
+      `Risk framed from entry to stop — validate on the chart before sizing`,
     ],
     tokenCost: COMPILE_COST,
     createdAt: Date.now(),

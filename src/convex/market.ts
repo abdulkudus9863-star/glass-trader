@@ -9,9 +9,8 @@ import { v } from "convex/values";
  * These actions proxy the Twelve Data REST API from the Convex backend
  * (which hides the API key and avoids browser CORS). Configure
  * `TWELVEDATA_API_KEY` in the deployment environment. When the key is
- * missing or a call fails they return null and the client falls back to
- * Binance (crypto) and then the synthetic generator, so the terminal never
- * goes blank.
+ * missing or a call fails they return null and the client shows honest
+ * DATA UNAVAILABLE / CONNECTION ERROR states — nothing is fabricated.
  */
 
 const TD_BASE = "https://api.twelvedata.com";
@@ -26,6 +25,13 @@ const TD_SYMBOL: Record<string, string> = {
   BTCUSDT: "BTC/USD",
   ETHUSDT: "ETH/USD",
   SOLUSDT: "SOL/USD",
+  DXY: "DXY",
+  SPX500: "S&P 500",
+  NAS100: "NDX",
+  US30: "DJI",
+  AAPL: "AAPL",
+  TSLA: "TSLA",
+  NVDA: "NVDA",
 };
 
 const TD_INTERVAL: Record<string, string> = {
@@ -153,5 +159,110 @@ export const ticker = action({
     } catch {
       return null;
     }
+  },
+});
+
+/* ============================ real news feed ============================ */
+
+export interface NewsArticle {
+  title: string;
+  source: string;
+  url: string;
+  publishedAt: string | null;
+}
+
+const NEWS_SOURCES = [
+  { name: "CoinDesk", url: "https://www.coindesk.com/arc/outboundfeeds/rss/" },
+  { name: "CoinTelegraph", url: "https://cointelegraph.com/rss" },
+  { name: "BBC Business", url: "https://feeds.bbci.co.uk/news/business/rss.xml" },
+];
+
+/** Strip CDATA / tags / entities from an RSS title. */
+function cleanTitle(s: string): string {
+  return s
+    .replace(/<!\[CDATA\[|\]\]>/g, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractTag(block: string, tag: string): string | null {
+  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const m = block.match(re);
+  return m ? m[1] : null;
+}
+
+function parseRss(xml: string): NewsArticle[] {
+  const out: NewsArticle[] = [];
+  const re = /<item>([\s\S]*?)<\/item>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const block = m[1];
+    const title = extractTag(block, "title");
+    const link = extractTag(block, "link");
+    if (!title || !link) continue;
+    const clean = cleanTitle(title);
+    if (clean.length < 12) continue;
+    out.push({
+      title: clean,
+      url: link.trim(),
+      source: "rss",
+      publishedAt:
+        extractTag(block, "pubDate") ?? extractTag(block, "dc:date") ?? null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Real macro / crypto headlines fetched server-side from public RSS feeds.
+ * No API key required, nothing is ever fabricated: if the feeds fail, an
+ * empty array is returned and the UI shows "Narrative data unavailable".
+ * Deduped by title and filtered to the last 48h where a timestamp exists.
+ */
+export const news = action({
+  args: { limit: v.number() },
+  handler: async (_ctx, { limit }) => {
+    const collected: (NewsArticle & { source: string })[] = [];
+    await Promise.all(
+      NEWS_SOURCES.map(async (src) => {
+        try {
+          const res = await fetch(src.url, {
+            signal: AbortSignal.timeout(8000),
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; AkAnalyser/1.0)" },
+          });
+          if (!res.ok) return;
+          const xml = await res.text();
+          for (const a of parseRss(xml).slice(0, 12)) {
+            collected.push({ ...a, source: src.name });
+          }
+        } catch {
+          /* skip this source */
+        }
+      }),
+    );
+
+    const seen = new Set<string>();
+    const out: NewsArticle[] = [];
+    for (const a of collected) {
+      const key = a.title.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 80);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ title: a.title, source: a.source, url: a.url, publishedAt: a.publishedAt });
+    }
+
+    const cutoff = Date.now() - 48 * 3600 * 1000;
+    const fresh = out.filter((a) => {
+      if (!a.publishedAt) return true;
+      const t = new Date(a.publishedAt).getTime();
+      return Number.isFinite(t) && t >= cutoff;
+    });
+
+    return fresh.slice(0, Math.min(Math.max(limit, 5), 25));
   },
 });

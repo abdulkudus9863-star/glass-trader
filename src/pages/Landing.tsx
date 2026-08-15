@@ -40,7 +40,7 @@ function TickerTape() {
     <div className="relative z-10 overflow-hidden border-b border-white/5 bg-white/[0.03] backdrop-blur-md">
       <div className="ticker-track flex w-max items-center gap-8 px-4 py-1.5">
         {doubled.map((t, i) => {
-          const up = t.change24h >= 0;
+          const up = (t.change24h ?? 0) >= 0;
           const Icon = up ? TrendingUp : TrendingDown;
           return (
             <div
@@ -49,16 +49,22 @@ function TickerTape() {
             >
               <span className="font-bold text-slate-300">{t.symbol.id}</span>
               <span className="font-medium tabular-nums text-slate-400">
-                {formatPrice(t.price, t.symbol.decimals)}
+                {t.price == null
+                  ? "DATA UNAVAILABLE"
+                  : formatPrice(t.price, t.symbol.decimals)}
               </span>
               <span
                 className={cn(
                   "flex items-center gap-0.5 font-semibold tabular-nums",
-                  up ? "text-emerald-400" : "text-rose-400",
+                  t.change24h == null
+                    ? "text-slate-500"
+                    : up
+                      ? "text-emerald-400"
+                      : "text-rose-400",
                 )}
               >
                 <Icon className="size-3" />
-                {formatPercent(t.change24h)}
+                {t.change24h == null ? "—" : formatPercent(t.change24h)}
               </span>
             </div>
           );
@@ -170,7 +176,7 @@ function HeroChartCard() {
         />
       </div>
       <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-muted-foreground">
-        <span>Custom canvas engine · offline-safe</span>
+        <span>Custom canvas engine · live Binance tape</span>
         <span>300 bars · auto-fits</span>
       </div>
     </motion.div>
@@ -180,8 +186,8 @@ function HeroChartCard() {
 export default function Landing() {
   const tickers = useMarketSnapshot(WATCHLIST_IDS);
   const movers = WATCHLIST_IDS.map((id) => tickers[id])
-    .filter(Boolean)
-    .sort((a, b) => Math.abs(b.change24h) - Math.abs(a.change24h))
+    .filter((t): t is NonNullable<typeof t> => Boolean(t && t.price != null))
+    .sort((a, b) => Math.abs(b.change24h ?? 0) - Math.abs(a.change24h ?? 0))
     .slice(0, 6);
 
   return (
@@ -338,10 +344,10 @@ export default function Landing() {
           <div className="absolute -inset-6 -z-10 rounded-[2rem] bg-gradient-to-tr from-[#F4C430]/15 via-[#00F0FF]/10 to-emerald-500/15 blur-2xl" />
           <HeroChartCard />
           <div className="animate-float-slow pointer-events-none absolute -left-4 -top-5 hidden rounded-xl glass-chip px-3 py-2 text-xs font-semibold text-slate-300 sm:block">
-            <span className="text-[#00E676]">▲ +2.4%</span> 24h
+            <span className="text-[#00E676]">●</span> Live Binance tape
           </div>
           <div className="animate-float-slower pointer-events-none absolute -bottom-4 -right-2 hidden rounded-xl glass-chip px-3 py-2 text-xs font-semibold text-slate-300 sm:block">
-            <span className="text-[#F4C430]">4/4 lanes</span> aligned
+            <span className="text-[#F4C430]">Deterministic</span> SMC engine
           </div>
         </div>
       </section>
@@ -371,7 +377,7 @@ export default function Landing() {
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {movers.map((t) => {
-              const up = t.change24h >= 0;
+              const up = (t.change24h ?? 0) >= 0;
               return (
                 <Link
                   key={t.symbol.id}
@@ -388,15 +394,23 @@ export default function Landing() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-semibold tabular-nums text-foreground">
-                      {formatPrice(t.price, t.symbol.decimals)}
+                      {t.price == null
+                        ? "DATA UNAVAILABLE"
+                        : formatPrice(t.price, t.symbol.decimals)}
                     </p>
                     <p
                       className={cn(
                         "text-xs font-bold tabular-nums",
-                        up ? "text-emerald-400" : "text-rose-400",
+                        t.change24h == null
+                          ? "text-slate-500"
+                          : up
+                            ? "text-emerald-400"
+                            : "text-rose-400",
                       )}
                     >
-                      {up ? "▲" : "▼"} {formatPercent(t.change24h)}
+                      {t.change24h == null
+                        ? "—"
+                        : `${up ? "▲" : "▼"} ${formatPercent(t.change24h)}`}
                     </p>
                   </div>
                 </Link>

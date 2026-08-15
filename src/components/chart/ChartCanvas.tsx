@@ -81,7 +81,7 @@ export default function ChartCanvas({
   founderBadge = false,
   strategies = [],
 }: ChartCanvasProps) {
-  const { candles, source } = useKlines(symbolId, intervalId);
+  const { candles, source, status } = useKlines(symbolId, intervalId);
   const [tvReady, setTvReady] = useState(false);
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const tf = getTimeframe(intervalId);
@@ -182,30 +182,37 @@ export default function ChartCanvas({
         </div>
       )}
 
-      {/* Live / synthetic data-source badge (top-right, custom engine only) */}
+      {/* Feed status badge (top-right, custom engine only) — honest about the
+          actual stream state; never claims LIVE while disconnected. */}
       {!showWidget && (
         <div
           className={cn(
             "pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[9px] font-bold tracking-wider backdrop-blur-sm",
-            source === "synthetic"
-              ? "border-[#F4C430]/30 bg-[#0b101b]/75 text-[#F4C430]"
-              : "border-[#00E676]/30 bg-[#0b101b]/75 text-[#00E676]",
+            status === "LIVE"
+              ? "border-[#00E676]/30 bg-[#0b101b]/75 text-[#00E676]"
+              : "border-[#F4C430]/30 bg-[#0b101b]/75 text-[#F4C430]",
           )}
           title={
-            source === "synthetic"
-              ? "No live feed configured — showing the deterministic generator"
-              : source === "binance"
-                ? "Real Binance candles"
-                : "Real Twelve Data candles"
+            source === "binance"
+              ? "Real Binance candles"
+              : source === "twelvedata"
+                ? "Real Twelve Data candles via the backend proxy"
+                : status
           }
         >
           <span
             className={cn(
               "size-1.5 rounded-full",
-              source === "synthetic" ? "bg-[#F4C430]" : "bg-[#00E676]",
+              status === "LIVE" ? "bg-[#00E676]" : "bg-[#F4C430]",
             )}
           />
-          {source === "synthetic" ? "SYNTHETIC DATA" : source === "binance" ? "LIVE · BINANCE" : "LIVE · TWELVEDATA"}
+          {status === "LIVE"
+            ? source === "binance"
+              ? "LIVE · BINANCE"
+              : source === "twelvedata"
+                ? "LIVE · TWELVEDATA"
+                : "LIVE"
+            : status}
         </div>
       )}
     </div>

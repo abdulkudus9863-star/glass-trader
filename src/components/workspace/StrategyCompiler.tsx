@@ -244,10 +244,13 @@ export default function StrategyCompiler({
   const compileAction = useAction(api.ai.compileStrategySpec);
 
   const tickers = useMarketSnapshot([asset]);
-  const price = tickers[asset]?.price ?? findSymbol(asset)?.basePrice ?? 0;
+  const price = tickers[asset]?.price ?? null;
 
   const canAfford = tokens >= COMPILE_COST;
-  const priceLabel = price ? formatPrice(price, findSymbol(asset)?.decimals ?? 2) : "…";
+  const priceLabel =
+    price == null
+      ? "DATA UNAVAILABLE"
+      : formatPrice(price, findSymbol(asset)?.decimals ?? 2);
 
   const compile = async () => {
     if (!prompt.trim()) {
@@ -256,6 +259,12 @@ export default function StrategyCompiler({
     }
     if (!canAfford) {
       setError(`Compiling costs ${COMPILE_COST} tokens — your trial wallet is empty.`);
+      return;
+    }
+    if (price == null) {
+      setError(
+        `No live price for ${asset} — the compiler anchors every level to the real tape and won't fabricate levels. Reconnect the feed and try again.`,
+      );
       return;
     }
     const spent = await onSpend(COMPILE_COST);
@@ -271,17 +280,17 @@ export default function StrategyCompiler({
         prompt,
         asset,
         timeframe: tf,
-        price: price || 1,
+        price,
       });
       if (res?.ok) {
-        compiled = normalizeSpec(res.parsed, prompt, asset, tf, price || 1);
+        compiled = normalizeSpec(res.parsed, prompt, asset, tf, price);
         setEngine(res.model);
       } else {
-        compiled = compileStrategy(prompt, asset, tf, price || 1);
+        compiled = compileStrategy(prompt, asset, tf, price);
         setEngine("local");
       }
     } catch {
-      compiled = compileStrategy(prompt, asset, tf, price || 1);
+      compiled = compileStrategy(prompt, asset, tf, price);
       setEngine("local");
     }
     setCompiling(false);

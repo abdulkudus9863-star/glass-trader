@@ -42,6 +42,9 @@ export default function Watchlist({
   onSelectSymbol,
 }: WatchlistProps) {
   const tickers = useMarketSnapshot(WATCHLIST_IDS);
+  const anyLive = Object.values(tickers).some(
+    (t) => t.price != null && t.status === "LIVE",
+  );
 
   return (
     <div className="flex flex-col">
@@ -55,8 +58,15 @@ export default function Watchlist({
           </p>
         </div>
         <span className="relative flex size-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+          {anyLive && (
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+          )}
+          <span
+            className={cn(
+              "relative inline-flex size-2 rounded-full",
+              anyLive ? "bg-emerald-500" : "bg-amber-500",
+            )}
+          />
         </span>
       </div>
 
@@ -64,7 +74,7 @@ export default function Watchlist({
         {WATCHLIST_IDS.map((id) => {
           const t = tickers[id];
           if (!t) return null;
-          const up = t.change24h >= 0;
+          const up = (t.change24h ?? 0) >= 0;
           return (
             <button
               key={id}
@@ -85,19 +95,23 @@ export default function Watchlist({
                   </span>
                 </div>
                 <span className="text-[11px] text-muted-foreground">
-                  {formatPrice(t.price, t.symbol.decimals)}
+                  {t.price == null
+                    ? "DATA UNAVAILABLE"
+                    : formatPrice(t.price, t.symbol.decimals)}
                 </span>
               </div>
               <Sparkline points={t.spark} up={up} />
               <span
                 className={cn(
                   "w-[74px] shrink-0 rounded-md px-1.5 py-1 text-center text-[11px] font-bold tabular-nums",
-                  up
-                    ? "bg-emerald-500/10 text-emerald-600"
-                    : "bg-rose-500/10 text-rose-600",
+                  t.change24h == null
+                    ? "bg-white/5 text-slate-500"
+                    : up
+                      ? "bg-emerald-500/10 text-emerald-600"
+                      : "bg-rose-500/10 text-rose-600",
                 )}
               >
-                {formatPercent(t.change24h)}
+                {t.change24h == null ? "—" : formatPercent(t.change24h)}
               </span>
             </button>
           );

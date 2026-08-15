@@ -1,11 +1,12 @@
 import type { UTCTimestamp } from "lightweight-charts";
 
 /* ============================================================================
-   Market data layer for the v1 chart terminal.
+   Market data layer for the terminal.
    - Multi-asset symbol catalog (crypto / forex / metals / indices / stocks)
-   - Binance REST klines for crypto with a deterministic synthetic fallback
-     so the terminal always renders, even fully offline.
-   - Indicator math used by the custom canvas engine.
+   - Binance REST klines for crypto; Twelve Data via the backend for others.
+   - Deterministic indicator math shared by the chart, radar and SMC engines.
+   No synthetic candles are ever generated — when a feed is unavailable the
+   hooks surface honest CONNECTING / STALE / ERROR states instead.
    ========================================================================== */
 
 export type MarketType =
@@ -14,8 +15,6 @@ export type MarketType =
   | "metals"
   | "indices"
   | "stocks";
-
-export type DataSource = "live" | "binance" | "synthetic";
 
 export interface Candle {
   time: number; // epoch seconds (UTCTimestamp)
@@ -33,30 +32,28 @@ export interface MarketSymbol {
   exchange: string;
   binance?: string; // symbol on Binance when the market is tradable there
   decimals: number; // price precision
-  basePrice: number; // seed used by the synthetic generator
-  vol24h: number; // daily volatility % used by the synthetic generator
 }
 
 export const SYMBOLS: MarketSymbol[] = [
-  { id: "BTCUSDT", name: "Bitcoin", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 63400, vol24h: 3.2 },
-  { id: "BTCUSD", name: "Bitcoin / US Dollar", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2, basePrice: 63400, vol24h: 3.2 },
-  { id: "ETHUSDT", name: "Ethereum", market: "crypto", exchange: "Binance", binance: "ETHUSDT", decimals: 2, basePrice: 3520, vol24h: 4.1 },
-  { id: "SOLUSDT", name: "Solana", market: "crypto", exchange: "Binance", binance: "SOLUSDT", decimals: 2, basePrice: 178.5, vol24h: 5.6 },
-  { id: "BNBUSDT", name: "BNB", market: "crypto", exchange: "Binance", binance: "BNBUSDT", decimals: 2, basePrice: 585, vol24h: 3.4 },
-  { id: "XRPUSDT", name: "XRP", market: "crypto", exchange: "Binance", binance: "XRPUSDT", decimals: 4, basePrice: 0.623, vol24h: 4.4 },
-  { id: "DOGEUSDT", name: "Dogecoin", market: "crypto", exchange: "Binance", binance: "DOGEUSDT", decimals: 5, basePrice: 0.161, vol24h: 5.8 },
-  { id: "EURUSD", name: "Euro / US Dollar", market: "forex", exchange: "OANDA", decimals: 5, basePrice: 1.085, vol24h: 0.55 },
-  { id: "GBPUSD", name: "British Pound / USD", market: "forex", exchange: "OANDA", decimals: 5, basePrice: 1.271, vol24h: 0.62 },
-  { id: "USDJPY", name: "US Dollar / Yen", market: "forex", exchange: "OANDA", decimals: 3, basePrice: 156.3, vol24h: 0.58 },
-  { id: "XAUUSD", name: "Gold", market: "metals", exchange: "OANDA", decimals: 2, basePrice: 4330, vol24h: 1.1 },
-  { id: "XAGUSD", name: "Silver", market: "metals", exchange: "OANDA", decimals: 3, basePrice: 31.2, vol24h: 1.8 },
-  { id: "SPX500", name: "S&P 500", market: "indices", exchange: "S&P", decimals: 2, basePrice: 5462, vol24h: 0.9 },
-  { id: "NAS100", name: "Nasdaq 100", market: "indices", exchange: "NASDAQ", decimals: 1, basePrice: 19652, vol24h: 1.2 },
-  { id: "US30", name: "Dow Jones 30", market: "indices", exchange: "DJIA", decimals: 1, basePrice: 39210, vol24h: 0.85 },
-  { id: "DXY", name: "US Dollar Index", market: "indices", exchange: "ICE", decimals: 2, basePrice: 104.2, vol24h: 0.5 },
-  { id: "AAPL", name: "Apple Inc.", market: "stocks", exchange: "NASDAQ", decimals: 2, basePrice: 228.4, vol24h: 1.6 },
-  { id: "TSLA", name: "Tesla Inc.", market: "stocks", exchange: "NASDAQ", decimals: 2, basePrice: 252.6, vol24h: 3.4 },
-  { id: "NVDA", name: "NVIDIA Corp.", market: "stocks", exchange: "NASDAQ", decimals: 2, basePrice: 128.1, vol24h: 2.9 },
+  { id: "BTCUSDT", name: "Bitcoin", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2 },
+  { id: "BTCUSD", name: "Bitcoin / US Dollar", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2 },
+  { id: "ETHUSDT", name: "Ethereum", market: "crypto", exchange: "Binance", binance: "ETHUSDT", decimals: 2 },
+  { id: "SOLUSDT", name: "Solana", market: "crypto", exchange: "Binance", binance: "SOLUSDT", decimals: 2 },
+  { id: "BNBUSDT", name: "BNB", market: "crypto", exchange: "Binance", binance: "BNBUSDT", decimals: 2 },
+  { id: "XRPUSDT", name: "XRP", market: "crypto", exchange: "Binance", binance: "XRPUSDT", decimals: 4 },
+  { id: "DOGEUSDT", name: "Dogecoin", market: "crypto", exchange: "Binance", binance: "DOGEUSDT", decimals: 5 },
+  { id: "EURUSD", name: "Euro / US Dollar", market: "forex", exchange: "OANDA", decimals: 5 },
+  { id: "GBPUSD", name: "British Pound / USD", market: "forex", exchange: "OANDA", decimals: 5 },
+  { id: "USDJPY", name: "US Dollar / Yen", market: "forex", exchange: "OANDA", decimals: 3 },
+  { id: "XAUUSD", name: "Gold", market: "metals", exchange: "OANDA", decimals: 2 },
+  { id: "XAGUSD", name: "Silver", market: "metals", exchange: "OANDA", decimals: 3 },
+  { id: "SPX500", name: "S&P 500", market: "indices", exchange: "S&P", decimals: 2 },
+  { id: "NAS100", name: "Nasdaq 100", market: "indices", exchange: "NASDAQ", decimals: 1 },
+  { id: "US30", name: "Dow Jones 30", market: "indices", exchange: "DJIA", decimals: 1 },
+  { id: "DXY", name: "US Dollar Index", market: "indices", exchange: "ICE", decimals: 2 },
+  { id: "AAPL", name: "Apple Inc.", market: "stocks", exchange: "NASDAQ", decimals: 2 },
+  { id: "TSLA", name: "Tesla Inc.", market: "stocks", exchange: "NASDAQ", decimals: 2 },
+  { id: "NVDA", name: "NVIDIA Corp.", market: "stocks", exchange: "NASDAQ", decimals: 2 },
 ];
 
 export function findSymbol(id: string): MarketSymbol | undefined {
@@ -105,99 +102,6 @@ export function formatTime(epochSeconds: number, intraday: boolean): string {
   return intraday
     ? d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
     : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-/* ------------------------------ rng utils ------------------------------ */
-
-export function hashString(str: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-export function mulberry32(seed: number) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Box–Muller gaussian, mean 0, std 1. */
-export function gaussian(rand: () => number = Math.random): number {
-  let u = 0;
-  let v = 0;
-  while (u === 0) u = rand();
-  while (v === 0) v = rand();
-  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-}
-
-/* --------------------------- synthetic candles ------------------------- */
-
-export function generateCandles(
-  sym: MarketSymbol,
-  tfMs: number,
-  count: number,
-): Candle[] {
-  const rand = mulberry32(hashString(`${sym.id}-${tfMs}`));
-  const drift = gaussian(rand) * 0.0006;
-  const vol = (sym.vol24h / 100) * Math.sqrt(tfMs / 86_400_000);
-  const now = Math.floor(Date.now() / 1000);
-  const step = tfMs / 1000;
-  const start = now - count * step;
-  const out: Candle[] = [];
-  let price = sym.basePrice * (0.94 + rand() * 0.12);
-  for (let i = 0; i < count; i++) {
-    const open = price;
-    const move = open * (gaussian(rand) * vol + drift);
-    const close = Math.max(1, open + move);
-    const wick = Math.abs(open * gaussian(rand) * vol * 0.6);
-    const high = Math.max(open, close) + wick;
-    const low = Math.min(open, close) - wick * (0.4 + rand() * 0.6);
-    const volume = Math.abs(gaussian(rand)) * sym.basePrice * 40 + 100;
-    out.push({
-      time: (start + i * step) as UTCTimestamp,
-      open: roundTo(open, sym.decimals),
-      high: roundTo(high, sym.decimals),
-      low: roundTo(Math.max(low, 1), sym.decimals),
-      close: roundTo(close, sym.decimals),
-      volume: Math.round(volume),
-    });
-    price = close;
-  }
-  return out;
-}
-
-export function makeNextCandle(
-  sym: MarketSymbol,
-  prev: Candle,
-  tfMs: number,
-  nowMs: number,
-): Candle {
-  const rand = mulberry32(hashString(`${sym.id}-${nowMs}`));
-  const vol = (sym.vol24h / 100) * Math.sqrt(tfMs / 86_400_000);
-  const open = prev.close;
-  const close = Math.max(1, open * (1 + gaussian(rand) * vol * 1.4));
-  const wick = Math.abs(open * gaussian(rand) * vol * 0.6);
-  return {
-    time: Math.floor(nowMs / 1000),
-    open: roundTo(open, sym.decimals),
-    high: roundTo(Math.max(open, close) + wick, sym.decimals),
-    low: roundTo(Math.max(1, Math.min(open, close) - wick), sym.decimals),
-    close: roundTo(close, sym.decimals),
-    volume: Math.round(Math.abs(gaussian(rand)) * sym.basePrice * 40 + 100),
-  };
-}
-
-function roundTo(value: number, decimals: number): number {
-  const f = 10 ** decimals;
-  return Math.round(value * f) / f;
 }
 
 /* --------------------------- Binance klines ---------------------------- */
@@ -264,6 +168,73 @@ export async function fetchTicker24h(
       });
     }
     return map;
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------ Binance futures (flow) ------------------------ */
+
+export interface BinanceFuturesData {
+  /** Open interest in USD notional (base qty × mark price). */
+  openInterest: number;
+  fundingRate: number | null;
+  longShortRatio: number | null;
+  markPrice: number | null;
+}
+
+/**
+ * Public Binance USD-M futures endpoints: open interest, funding rate and
+ * the top-trader long/short account ratio. No API key required.
+ */
+export async function fetchBinanceFutures(
+  binanceSymbol: string,
+): Promise<BinanceFuturesData | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const base = "https://fapi.binance.com";
+    const [oiRes, idxRes, ratioRes] = await Promise.all([
+      fetch(`${base}/fapi/v1/openInterest?symbol=${binanceSymbol}`, {
+        signal: controller.signal,
+      }),
+      fetch(`${base}/fapi/v1/premiumIndex?symbol=${binanceSymbol}`, {
+        signal: controller.signal,
+      }),
+      fetch(
+        `${base}/futures/data/topLongShortAccountRatio?symbol=${binanceSymbol}&period=5m&limit=1`,
+        { signal: controller.signal },
+      ),
+    ]);
+    clearTimeout(timer);
+    if (!oiRes.ok) return null;
+    const oi = (await oiRes.json()) as { openInterest: string };
+    let fundingRate: number | null = null;
+    let markPrice: number | null = null;
+    if (idxRes.ok) {
+      const idx = (await idxRes.json()) as {
+        lastFundingRate: string;
+        markPrice: string;
+      };
+      fundingRate = Number(idx.lastFundingRate);
+      markPrice = Number(idx.markPrice);
+    }
+    let longShortRatio: number | null = null;
+    if (ratioRes.ok) {
+      const rows = (await ratioRes.json()) as { longShortRatio: string }[];
+      longShortRatio =
+        rows.length > 0 ? Number(rows[rows.length - 1].longShortRatio) : null;
+    }
+    const oiUsd =
+      markPrice != null && Number.isFinite(markPrice)
+        ? Number(oi.openInterest) * markPrice
+        : Number(oi.openInterest);
+    return {
+      openInterest: Number.isFinite(oiUsd) ? oiUsd : 0,
+      fundingRate: Number.isFinite(fundingRate) ? fundingRate : null,
+      markPrice: Number.isFinite(markPrice) ? markPrice : null,
+      longShortRatio: Number.isFinite(longShortRatio) ? longShortRatio : null,
+    };
   } catch {
     return null;
   }

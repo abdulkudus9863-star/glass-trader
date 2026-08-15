@@ -1,21 +1,16 @@
 /* ============================================================================
    SMC (Smart Money Concepts) engine — dynamic analysis + canvas overlays.
 
-   Everything is derived from the live candle tape for the *selected* symbol
-   and timeframe: swing pivots produce the S/R levels and watch zone, the
-   seeded (per symbol / timeframe / day) model sizes the whale walls, and the
-   verdict reads real RSI + EMA structure. Nothing here is hardcoded to a
-   specific asset — switching symbols re-derives the whole picture.
+   Everything is derived deterministically from the live candle tape for the
+   *selected* symbol and timeframe: swing pivots produce the S/R levels and
+   watch zone, CHoCH/BOS read pivot structure, sweeps and FVGs are detected
+   from real price action, and the verdict is a pure function of RSI + EMA
+   trend. No randomness, no fabricated levels — switching symbols re-derives
+   the whole picture. Whale walls (orderbook depth) render nothing until a
+   real depth feed is wired up.
    ========================================================================== */
 
-import {
-  type Candle,
-  atr,
-  hashString,
-  mulberry32,
-  rsi,
-  sma,
-} from "./market";
+import { type Candle, atr, detectFVG, rsi, sma } from "./market";
 
 export interface WatchZone {
   top: number;
@@ -155,12 +150,43 @@ function chocDirection(candles: Candle[], pivots: Pivots): "bullish" | "bearish"
 
 /** Small helper so the panel can render a human "Watch zone" line. */
 export function formatWatchZone(zone: WatchZone, decimals: number): string {
+  return formatPriceRange(zone.bottom, zone.top, decimals);
+}
+
+function formatPriceRange(lo: number, hi: number, decimals: number): string {
   const f = (v: number) =>
     v.toLocaleString("en-US", {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
-  return `${f(zone.bottom)} – ${f(zone.top)}`;
+  return `${f(lo)} – ${f(hi)}`;
+}
+
+/**
+ * Detect a liquidity sweep: price pokes through a recent swing level and
+ * closes back on the other side (rejection). Returns the side of liquidity
+ * that was taken, or null.
+ */
+function detectSweep(
+  candles: Candle[],
+  pivots: Pivots,
+): "bullish" | "bearish" | null {
+  const lastLow = pivots.lows[pivots.lows.length - 1];
+  const lastHigh = pivots.highs[pivots.highs.length - 1];
+  const recent = candles.slice(-16);
+  if (lastLow) {
+    const seg = recent.filter((c) => c.time >= candles[lastLow.index].time);
+    for (const c of seg) {
+      if (c.low < lastLow.price && c.close > lastLow.price) return "bullish";
+    }
+  }
+  if (lastHigh) {
+    const seg = recent.filter((c) => c.time >= candles[lastHigh.index].time);
+    for (const c of seg) {
+      if (c.high > lastHigh.price && c.close < lastHigh.price) return "bearish";
+    }
+  }
+  return null;
 }
 
 export function analyzeSmc(opts: AnalyzeSmcOptions): SmcAnalysis | null {
@@ -181,10 +207,6 @@ export function analyzeSmc(opts: AnalyzeSmcOptions): SmcAnalysis | null {
     trendPct > 0.3 ? "TRENDING UP" : trendPct < -0.3 ? "TRENDING DOWN" : "RANGING";
   const rsiLabel: SmcAnalysis["rsiLabel"] =
     rsiNow < 38 ? "Oversold" : rsiNow > 62 ? "Overbought" : "Neutral";
-
-  /* seeded model — stable within a day per symbol/timeframe */
-  const dateKey = new Date().toISOString().slice(0, 10);
-  const rand = mulberry32(hashString(`smc-${symbolId}-${intervalId}-${dateKey}`));
 
   /* ------------------------- structure / pivots ------------------------- */
 
@@ -220,35 +242,26 @@ export function analyzeSmc(opts: AnalyzeSmcOptions): SmcAnalysis | null {
 
   /* --------------------------- whale walls ------------------------------ */
 
-  const sizeOf = () => `${(2.4 + rand() * 9.6).toFixed(1)}M`;
+  /* Whale walls are orderbook depth levels. No depth stream is wired up yet,
+     so we never fabricate wall sizes or placements — the canvas simply
+     renders no walls until a real orderbook feed exists. */
   const whaleWalls: WhaleWall[] = [];
-  const ask1 = swingR + atrNow * (0.25 + rand() * 0.35);
-  const ask2 = swingR + atrNow * (0.85 + rand() * 0.6);
-  const bid1 = swingS - atrNow * (0.25 + rand() * 0.35);
-  const bid2 = swingS - atrNow * (0.85 + rand() * 0.6);
-  whaleWalls.push(
-    { price: round(ask1, decimals), size: `$${sizeOf()}`, side: "ask" },
-    { price: round(ask2, decimals), size: `$${sizeOf()}`, side: "ask" },
-    { price: round(bid1, decimals), size: `$${sizeOf()}`, side: "bid" },
-    { price: round(bid2, decimals), size: `$${sizeOf()}`, side: "bid" },
-  );
 
   /* ----------------------------- verdict -------------------------------- */
 
+  /* Deterministic verdict — no randomness. Oversold/overbought read the RSI
+     against the trend; neutral momentum lets structure decide. */
   let verdict: SmcVerdict;
   if (rsiNow < 38) {
     verdict = baseRegime === "TRENDING DOWN" ? "WAIT" : "LONG";
   } else if (rsiNow > 62) {
     verdict = baseRegime === "TRENDING UP" ? "WAIT" : "SHORT";
+  } else if (trendPct > 0.2 && rsiNow < 55) {
+    verdict = "LONG"; // pullback inside an uptrend
+  } else if (trendPct < -0.2 && rsiNow > 45) {
+    verdict = "SHORT"; // rally into supply inside a downtrend
   } else {
-    const roll = rand();
-    if (trendPct > 0.2) {
-      verdict = roll < 0.6 ? "LONG" : roll < 0.85 ? "WAIT" : "SHORT";
-    } else if (trendPct < -0.2) {
-      verdict = roll < 0.6 ? "SHORT" : roll < 0.85 ? "WAIT" : "LONG";
-    } else {
-      verdict = roll < 0.4 ? "LONG" : roll < 0.7 ? "SHORT" : "WAIT";
-    }
+    verdict = "WAIT"; // no confluence
   }
 
   const regime =
@@ -299,6 +312,14 @@ export function analyzeSmc(opts: AnalyzeSmcOptions): SmcAnalysis | null {
   /* --------------------------- panel content ---------------------------- */
 
   const dir = chocDirection(candles, pivots);
+  const sweep = detectSweep(candles, pivots);
+  const fvg = detectFVG(candles, 4)[0] ?? null;
+  const fvgLabel =
+    fvg != null
+      ? `${fvg.bullish ? "Bullish" : "Bearish"} FVG ${formatPriceRange(fvg.bottom, fvg.top, decimals)}`
+      : null;
+  const priceInFvg =
+    fvg != null && price >= fvg.bottom && price <= fvg.top;
   const structure: SmcStructure = {
     bias:
       verdict === "LONG"
@@ -308,9 +329,18 @@ export function analyzeSmc(opts: AnalyzeSmcOptions): SmcAnalysis | null {
           : baseRegime === "RANGING"
             ? "Range-bound — no structural bias yet, waiting for a break."
             : `${baseRegime === "TRENDING DOWN" ? "Bearish" : "Bullish"} retracement within a broader macro trend.`,
-    sweepZone: `Liquidity swept between ${formatWatchZone(watchZone, decimals)} within the last ${PIVOT_WINDOW * 2 + 2} candles.`,
-    structureChange: `${dir === "bullish" ? "Bullish" : "Bearish"} CHoCH (Change of Character) confirmed on the ${intervalId} chart.`,
-    keyZone: `Price mitigating the ${intervalId} Fair Value Gap (FVG) and ${verdict === "LONG" ? "discount demand" : verdict === "SHORT" ? "premium supply" : "neutral"} zone (${formatWatchZone(watchZone, decimals)}).`,
+    sweepZone:
+      sweep === null
+        ? "No recent liquidity sweep detected in the tape."
+        : sweep === "bullish"
+          ? `Buy-side liquidity swept — price traded below a swing low and closed back above it on the ${intervalId} chart.`
+          : `Sell-side liquidity swept — price traded above a swing high and closed back below it on the ${intervalId} chart.`,
+    structureChange: `${dir === "bullish" ? "Bullish" : "Bearish"} CHoCH (Change of Character) detected on the ${intervalId} chart.`,
+    keyZone: priceInFvg
+      ? `Price is mitigating the most recent Fair Value Gap (${fvgLabel}) in the ${verdict === "LONG" ? "discount" : verdict === "SHORT" ? "premium" : "neutral"} zone.`
+      : fvgLabel
+        ? `Most recent ${fvgLabel}; price is not currently inside it.`
+        : "No fresh Fair Value Gap detected in the recent tape.",
   };
 
   const signal: SmcSignal = {

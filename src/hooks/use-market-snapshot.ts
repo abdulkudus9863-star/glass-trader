@@ -1,24 +1,36 @@
 import { api } from "@/convex/_generated/api";
 import { useAction } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { subscribeBinanceTicker } from "@/lib/realtime";
+import {
+  getBinanceSocketStatus,
+  subscribeBinanceStatus,
+  subscribeBinanceTicker,
+} from "@/lib/realtime";
 import {
   type MarketSymbol,
   fetchTicker24h,
   findSymbol,
-  gaussian,
-  hashString,
-  mulberry32,
 } from "@/lib/market";
+
+export type TickerStatus =
+  | "CONNECTING"
+  | "LIVE"
+  | "STALE"
+  | "RECONNECTING"
+  | "ERROR";
 
 export interface TickerState {
   symbol: MarketSymbol;
-  price: number;
-  open: number; // session open, used to derive 24h change
-  change24h: number;
-  high: number;
-  low: number;
-  spark: number[]; // trailing closes for the mini sparkline
+  /** null = this feed has no real quote right now. Never a fabricated price. */
+  price: number | null;
+  change24h: number | null;
+  high: number | null;
+  low: number | null;
+  spark: number[]; // trailing real closes (may be empty)
+  status: TickerStatus;
+  source: "binance" | "twelvedata" | null;
+  updatedAt: number | null;
+  latencyMs: number | null;
 }
 
 export const WATCHLIST_IDS = [
@@ -36,35 +48,33 @@ export const WATCHLIST_IDS = [
   "DXY",
 ];
 
-function seedTicker(s: MarketSymbol): TickerState {
-  const rand = mulberry32(hashString(s.id));
-  const price = s.basePrice * (0.985 + rand() * 0.03);
-  const spark: number[] = [];
-  let p = price * 0.98;
-  for (let i = 0; i < 26; i++) {
-    p = p * (1 + gaussian(rand) * (s.vol24h / 100) * 0.22);
-    spark.push(p);
-  }
+const TD_POLL_MS = 30_000;
+const WS_STALE_MS = 15_000;
+
+function emptyTicker(s: MarketSymbol): TickerState {
   return {
     symbol: s,
-    price,
-    open: s.basePrice,
-    change24h: ((price - s.basePrice) / s.basePrice) * 100,
-    high: Math.max(price, ...spark) * 1.004,
-    low: Math.min(price, ...spark) * 0.996,
-    spark,
+    price: null,
+    change24h: null,
+    high: null,
+    low: null,
+    spark: [],
+    status: "CONNECTING",
+    source: null,
+    updatedAt: null,
+    latencyMs: null,
   };
 }
 
 /**
- * Live-ish snapshot of a set of markets.
+ * Live snapshot of a set of markets.
  *
- * Feed chain per symbol:
- *   - crypto  → real Binance 24h tickers (polled every 15s)
- *   - others  → real Twelve Data quotes via the backend (polled every 60s)
- *   - fallback → deterministic random walk so the tape always moves
+ *   - crypto  → real Binance WebSocket ticks + 24h REST tickers
+ *   - others  → real Twelve Data quotes via the backend (polled)
+ *   - no real feed → `status: "ERROR"`, `price: null` — consumers must show
+ *     DATA SOURCE UNAVAILABLE. No seeded prices, no random walks.
  */
-export function useMarketSnapshot(symbolIds: string[]) {
+export function useMarketSnapshot(symbolIds: string[]): Record<string, TickerState> {
   const key = symbolIds.join(",");
   const symbols = useMemo(
     () =>
@@ -76,15 +86,12 @@ export function useMarketSnapshot(symbolIds: string[]) {
   );
 
   const [tickers, setTickers] = useState<Record<string, TickerState>>({});
+  const lastWsAtRef = useRef<Record<string, number>>({});
   const tickerAction = useAction(api.market.ticker);
-
-  /* symbols currently backed by a real feed (Binance / Twelve Data) — the
-     synthetic tick loop must never walk a real quote away from the market */
-  const realFeedsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const init: Record<string, TickerState> = {};
-    for (const s of symbols) init[s.id] = seedTicker(s);
+    for (const s of symbols) init[s.id] = emptyTicker(s);
     setTickers(init);
 
     const binanceSymbols = symbols
@@ -92,83 +99,32 @@ export function useMarketSnapshot(symbolIds: string[]) {
       .filter((b): b is string => Boolean(b));
     const liveSymbols = symbols.filter((s) => !s.binance);
 
-    const refreshBinance = async () => {
-      if (binanceSymbols.length === 0) return;
-      const map = await fetchTicker24h(binanceSymbols);
-      if (!map) return;
-      setTickers((prev) => {
-        const next = { ...prev };
-        for (const s of symbols) {
-          const t = s.binance ? map.get(s.binance) : undefined;
-          if (!t) continue;
-          realFeedsRef.current.add(s.id);
-          const prevT = next[s.id];
-          next[s.id] = {
-            symbol: s,
-            price: t.price,
-            open: prevT?.open ?? t.price / (1 + t.change24h / 100),
-            change24h: t.change24h,
-            high: t.high,
-            low: t.low,
-            spark: prevT ? [...prevT.spark.slice(-25), t.price] : [t.price],
-          };
-        }
-        return next;
-      });
-    };
-
-    const refreshLive = async () => {
-      if (liveSymbols.length === 0) return;
-      const map = await tickerAction({
-        symbolIds: liveSymbols.map((s) => s.id),
-      });
-      if (!map) return;
-      setTickers((prev) => {
-        const next = { ...prev };
-        for (const [id, t] of Object.entries(map)) {
-          const sym = findSymbol(id);
-          if (!sym) continue;
-          realFeedsRef.current.add(id);
-          const prevT = next[id];
-          next[id] = {
-            symbol: sym,
-            price: t.price,
-            open: prevT?.open ?? t.price / (1 + t.change24h / 100),
-            change24h: t.change24h,
-            high: t.high,
-            low: t.low,
-            spark: prevT ? [...prevT.spark.slice(-25), t.price] : [t.price],
-          };
-        }
-        return next;
-      });
-    };
-
-    refreshBinance();
-    refreshLive();
-    const binancePoll = setInterval(refreshBinance, 15_000);
-    const livePoll = setInterval(refreshLive, 60_000);
-
-    /* live WebSocket ticks for every crypto symbol — these arrive ~1/s and
-       beat the 15s REST poll, so the tape moves at tick speed */
+    /* ---- crypto: WS ticks + 24h REST refresh ---- */
     const wsUnsubs: (() => void)[] = [];
     for (const s of symbols) {
       if (!s.binance) continue;
-      realFeedsRef.current.add(s.id);
+      lastWsAtRef.current[s.id] = Date.now();
       wsUnsubs.push(
         subscribeBinanceTicker(s.binance, (t) => {
+          lastWsAtRef.current[s.id] = Date.now();
           setTickers((prev) => {
             const cur = prev[s.id];
-            if (!cur) return prev;
+            const spark = cur
+              ? [...cur.spark.slice(-39), t.price]
+              : [t.price];
             return {
               ...prev,
               [s.id]: {
-                ...cur,
+                symbol: s,
                 price: t.price,
                 change24h: t.change24h,
-                high: Math.max(cur.high, t.high),
-                low: Math.min(cur.low, t.low),
-                spark: [...cur.spark.slice(-25), t.price],
+                high: cur && cur.high != null ? Math.max(cur.high, t.high) : t.high,
+                low: cur && cur.low != null ? Math.min(cur.low, t.low) : t.low,
+                spark,
+                status: "LIVE",
+                source: "binance",
+                updatedAt: t.receivedAt,
+                latencyMs: Math.max(0, Date.now() - t.receivedAt),
               },
             };
           });
@@ -176,38 +132,138 @@ export function useMarketSnapshot(symbolIds: string[]) {
       );
     }
 
-    /* keep the tape moving between polls — but only for symbols without a
-       real feed; real quotes stay pinned to the market value */
-    const tick = setInterval(() => {
+    const refreshBinance24h = async () => {
+      if (binanceSymbols.length === 0) return;
+      const map = await fetchTicker24h(binanceSymbols);
+      if (!map) return;
       setTickers((prev) => {
-        const next: Record<string, TickerState> = {};
-        for (const [id, t] of Object.entries(prev)) {
-          if (realFeedsRef.current.has(id)) {
-            next[id] = t;
-            continue;
-          }
-          const price = Math.max(
-            1,
-            t.price * (1 + gaussian() * (t.symbol.vol24h / 100) * 0.32),
-          );
-          next[id] = {
-            ...t,
-            price,
-            change24h: ((price - t.open) / t.open) * 100,
-            high: Math.max(t.high, price),
-            low: Math.min(t.low, price),
-            spark: [...t.spark.slice(-25), price],
+        const next = { ...prev };
+        for (const s of symbols) {
+          if (!s.binance) continue;
+          const t = map.get(s.binance);
+          if (!t) continue;
+          const cur = next[s.id] ?? emptyTicker(s);
+          next[s.id] = {
+            ...cur,
+            price: cur.price ?? t.price,
+            change24h: t.change24h,
+            high: cur.high != null ? Math.max(cur.high, t.high) : t.high,
+            low: cur.low != null ? Math.min(cur.low, t.low) : t.low,
+            source: "binance",
+            updatedAt: Date.now(),
+            status: cur.status === "ERROR" ? "CONNECTING" : cur.status,
           };
         }
         return next;
       });
-    }, 1600);
+    };
+    void refreshBinance24h();
+    const binancePoll = setInterval(() => void refreshBinance24h(), 60_000);
+
+    /* ---- non-crypto: Twelve Data via the backend ---- */
+    const refreshLive = async () => {
+      if (liveSymbols.length === 0) return;
+      try {
+        const map = await tickerAction({
+          symbolIds: liveSymbols.map((s) => s.id),
+        });
+        if (!map) {
+          setTickers((prev) => {
+            const next = { ...prev };
+            for (const s of liveSymbols) {
+              const cur = next[s.id];
+              if (cur && cur.price == null) {
+                next[s.id] = {
+                  ...cur,
+                  status: "ERROR",
+                  source: "twelvedata",
+                };
+              }
+            }
+            return next;
+          });
+          return;
+        }
+        setTickers((prev) => {
+          const next = { ...prev };
+          for (const [id, t] of Object.entries(map)) {
+            const sym = findSymbol(id);
+            const cur = next[id];
+            if (!sym) continue;
+            const spark = cur
+              ? [...cur.spark.slice(-39), t.price]
+              : [t.price];
+            next[id] = {
+              symbol: sym,
+              price: t.price,
+              change24h: t.change24h,
+              high: t.high,
+              low: t.low,
+              spark,
+              status: "LIVE",
+              source: "twelvedata",
+              updatedAt: Date.now(),
+              latencyMs: null,
+            };
+          }
+          return next;
+        });
+      } catch {
+        setTickers((prev) => {
+          const next = { ...prev };
+          for (const s of liveSymbols) {
+            const cur = next[s.id];
+            if (cur && cur.price == null) {
+              next[s.id] = { ...cur, status: "ERROR" };
+            }
+          }
+          return next;
+        });
+      }
+    };
+    void refreshLive();
+    const livePoll = setInterval(() => void refreshLive(), TD_POLL_MS);
+
+    /* ---- socket-level status → RECONNECTING; per-symbol staleness ---- */
+    const unsubStatus = subscribeBinanceStatus((s) => {
+      if (s !== "reconnecting") return;
+      setTickers((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next)) {
+          if (next[id].source === "binance") next[id] = { ...next[id], status: "RECONNECTING" };
+        }
+        return next;
+      });
+    });
+    const wsPoll = setInterval(() => {
+      const now = Date.now();
+      setTickers((prev) => {
+        const next = { ...prev };
+        for (const s of symbols) {
+          if (!s.binance) continue;
+          const cur = next[s.id];
+          if (!cur || cur.source !== "binance") continue;
+          if (cur.price == null) continue;
+          const last = lastWsAtRef.current[s.id] ?? 0;
+          if (now - last > WS_STALE_MS) {
+            next[s.id] = { ...cur, status: "STALE", latencyMs: now - last };
+          }
+        }
+        return next;
+      });
+    }, 5000);
+
+    /* expose initial socket state */
+    if (getBinanceSocketStatus() === "open" || getBinanceSocketStatus() === "reconnecting") {
+      /* the tick handlers will flip symbols to LIVE on the first frame */
+    }
 
     return () => {
       for (const unsub of wsUnsubs) unsub();
+      unsubStatus();
       clearInterval(binancePoll);
       clearInterval(livePoll);
-      clearInterval(tick);
+      clearInterval(wsPoll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbols]);

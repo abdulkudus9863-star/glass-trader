@@ -19,12 +19,9 @@ import {
   findSymbol,
   formatPercent,
   formatPrice,
-  hashString,
-  mulberry32,
-  rsi,
-  sma,
   type TimeframeId,
 } from "@/lib/market";
+import { analyzeSmc } from "@/lib/smc";
 import { cn } from "@/lib/utils";
 
 type Verdict = "LONG" | "SHORT" | "WAIT";
@@ -48,73 +45,34 @@ export default function AiAnalysisDrawer({
 
   const ticker = tickers[symbolId];
   const lastClose = candles[candles.length - 1]?.close;
-  const price = ticker?.price ?? lastClose ?? sym.basePrice;
-  const change24h = ticker?.change24h ?? 0;
+  const price = ticker?.price ?? lastClose ?? null;
+  const change24h = ticker?.change24h ?? null;
 
+  /* Deterministic SMC analysis over the live tape — the same engine that
+     drives the SMC panel and the canvas overlays, so every number matches. */
   const analysis = useMemo(() => {
-    if (candles.length < 30) return null;
-    const closes = candles.map((c) => c.close);
-    const rsiVals = rsi(closes, 14);
-    const rsiNow = rsiVals[rsiVals.length - 1] ?? 50;
-    const sma20Vals = sma(closes, 20);
-    const smaNow = sma20Vals[sma20Vals.length - 1];
-    const trendPct = smaNow ? ((price - smaNow) / smaNow) * 100 : 0;
-    const regime: string =
-      Math.abs(trendPct) > 0.25
-        ? trendPct > 0
-          ? "TRENDING UP"
-          : "TRENDING DOWN"
-        : "RANGING";
-
-    /* Daily-seeded verdict so the call is stable but independent per asset. */
-    const rand = mulberry32(
-      hashString(`${symbolId}-${intervalId}-${new Date().toISOString().slice(0, 10)}`),
-    );
-    const roll = rand();
-    let verdict: Verdict;
-    if (rsiNow < 42) {
-      verdict = roll < 0.7 ? "LONG" : roll < 0.85 ? "WAIT" : "SHORT";
-    } else if (rsiNow > 62) {
-      verdict = roll < 0.7 ? "SHORT" : roll < 0.85 ? "WAIT" : "LONG";
-    } else {
-      verdict = roll < 0.45 ? "WAIT" : roll < 0.72 ? "LONG" : "SHORT";
-    }
-
-    const d = sym.decimals;
-    const rp = (v: number) => Math.round(v * 10 ** d) / 10 ** d;
-    const entry =
-      verdict === "LONG"
-        ? [rp(price * 0.993), rp(price * 0.998)]
-        : verdict === "SHORT"
-          ? [rp(price * 1.002), rp(price * 1.007)]
-          : [rp(price * 0.998), rp(price * 1.002)];
-    const sl =
-      verdict === "LONG"
-        ? rp(entry[0] * 0.994)
-        : verdict === "SHORT"
-          ? rp(entry[1] * 1.006)
-          : rp(entry[0] * 0.996);
-    const tp1 =
-      verdict === "LONG"
-        ? rp(price * 1.012)
-        : verdict === "SHORT"
-          ? rp(price * 0.988)
-          : rp(price * 1.006);
-    const tp2 =
-      verdict === "LONG"
-        ? rp(price * 1.026)
-        : verdict === "SHORT"
-          ? rp(price * 0.974)
-          : rp(price * 1.012);
-    const invalid =
-      verdict === "LONG"
-        ? rp(sl * 0.998)
-        : verdict === "SHORT"
-          ? rp(sl * 1.002)
-          : rp(entry[1] * 1.004);
-
-    return { rsiNow, regime, verdict, entry, sl, tp1, tp2, invalid };
-  }, [candles, price, symbolId, intervalId, sym.decimals]);
+    if (candles.length < 30 || lastClose == null) return null;
+    const smc = analyzeSmc({
+      symbolId,
+      intervalId,
+      candles,
+      price: lastClose,
+      change24h: ticker?.change24h ?? 0,
+      decimals: sym.decimals,
+      assetName: sym.name,
+    });
+    if (!smc) return null;
+    return {
+      rsiNow: smc.rsi,
+      regime: smc.regime,
+      verdict: smc.verdict as Verdict,
+      entry: smc.signal.entryZone,
+      sl: smc.signal.stopLoss,
+      tp1: smc.signal.tp1,
+      tp2: smc.signal.tp2,
+      invalid: smc.signal.invalidation,
+    };
+  }, [candles, lastClose, ticker?.change24h, symbolId, intervalId, sym.decimals, sym.name]);
 
   const verdictStyle: Record<Verdict, string> = {
     LONG: "border-[#00E676]/40 bg-[#00E676]/10 text-[#00E676]",
@@ -165,7 +123,7 @@ export default function AiAnalysisDrawer({
                   <span className="text-slate-400">
                     <span className="mr-1.5 text-slate-500">Price</span>
                     <span className="font-mono font-semibold text-foreground">
-                      {formatPrice(price, sym.decimals)}
+                      {price == null ? "—" : formatPrice(price, sym.decimals)}
                     </span>
                   </span>
                   <span className="text-slate-400">
@@ -173,10 +131,14 @@ export default function AiAnalysisDrawer({
                     <span
                       className={cn(
                         "font-mono font-semibold",
-                        change24h >= 0 ? "text-[#00E676]" : "text-[#FF1744]",
+                        change24h == null
+                          ? "text-slate-500"
+                          : change24h >= 0
+                            ? "text-[#00E676]"
+                            : "text-[#FF1744]",
                       )}
                     >
-                      {formatPercent(change24h)}
+                      {change24h == null ? "—" : formatPercent(change24h)}
                     </span>
                   </span>
                   <span className="text-slate-400">
@@ -222,6 +184,19 @@ export default function AiAnalysisDrawer({
               </div>
 
               {/* Verdict card */}
+              {!analysis && (
+                <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                  <div className="rounded-xl border border-dashed border-[#1B263B] px-4 py-8 text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                      DATA UNAVAILABLE
+                    </p>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      No candle feed for {symbolId} on the {intervalId} chart —
+                      analysis cannot be derived without a live tape.
+                    </p>
+                  </div>
+                </div>
+              )}
               {analysis && (
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
                   <div
@@ -334,9 +309,9 @@ export default function AiAnalysisDrawer({
                     </div>
                   </div>
                   <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
-                    Auto-generated from live tape &amp; seeded models — educational
-                    only, not financial advice. Verify levels on the chart before
-                    committing capital.
+                    Deterministic SMC analysis computed from the live candle
+                    tape — educational only, not financial advice. Verify levels
+                    on the chart before committing capital.
                   </p>
                 </div>
               )}

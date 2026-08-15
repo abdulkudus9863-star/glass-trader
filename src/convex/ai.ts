@@ -59,6 +59,21 @@ export const copilotReply = action({
     price: v.number(),
     change24h: v.number(),
     prompt: v.string(),
+    snapshot: v.optional(
+      v.object({
+        rsi: v.optional(v.number()),
+        regime: v.optional(v.string()),
+        verdict: v.optional(
+          v.union(v.literal("LONG"), v.literal("SHORT"), v.literal("WAIT")),
+        ),
+        entry: v.optional(v.array(v.number())),
+        stopLoss: v.optional(v.number()),
+        tp1: v.optional(v.number()),
+        tp2: v.optional(v.number()),
+        invalidation: v.optional(v.number()),
+        rrr: v.optional(v.number()),
+      }),
+    ),
     history: v.array(
       v.object({
         role: v.union(v.literal("user"), v.literal("assistant")),
@@ -66,16 +81,23 @@ export const copilotReply = action({
       }),
     ),
   },
-  handler: async (_ctx, { symbolId, price, change24h, prompt, history }) => {
+  handler: async (_ctx, { symbolId, price, change24h, prompt, snapshot, history }) => {
+    const snapshotBlock = snapshot
+      ? `Deterministic SMC snapshot computed from the live tape: ${JSON.stringify(
+          snapshot,
+        )}. These numbers are ground truth — you MUST NOT invent, modify or contradict them. Interpret the confluence and conflicts they imply, explain the structure, and keep your verdict consistent with the snapshot verdict (downgrade to WAIT only if the snapshot is missing or you find a strong reason). Reference the snapshot numbers directly in your bullets.`
+      : `No deterministic snapshot was provided — do NOT invent RSI, levels, or a directional read. If you cannot answer from the live price alone, say so honestly and default to WAIT.`;
+
     const system = [
       `You are the Ak Analyser trading copilot inside the Abdul Kudus Trading Academy terminal.`,
       `You are anchored to the LIVE tape: ${symbolId} at ${price.toLocaleString(
         "en-US",
       )} with a 24h change of ${change24h >= 0 ? "+" : ""}${change24h.toFixed(2)}%.`,
       `Never quote stale or invented levels. Evaluate the question using the live price, volatility implied by the 24h move, and sound SMC / price-action reasoning.`,
+      snapshotBlock,
       `Reply in strict JSON with exactly this shape:`,
       `{"verdict":"LONG","rr":"1:2.4","summary":"one or two sentences","bullets":["3 to 5 short data-backed points"]}`,
-      `verdict must be one of LONG, SHORT, WAIT. rr is a risk/reward string. summary is a single concise verdict statement. Every bullet must reference the live price data.`,
+      `verdict must be one of LONG, SHORT, WAIT. rr is a risk/reward string. summary is a single concise verdict statement. Every bullet must reference the live price data and the snapshot numbers where available.`,
     ].join(" ");
 
     const userMessage = `Live ${symbolId} tape: price ${price.toLocaleString(
