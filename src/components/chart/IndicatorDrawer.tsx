@@ -3,8 +3,11 @@ import { LineChart, X } from "lucide-react";
 import { getIndicator } from "@/lib/indicators";
 import { cn } from "@/lib/utils";
 
-/** Quick-access studies per the platform spec (EMA suite, BB, Volume, RSI, OI). */
-const QUICK_IDS = ["ema9", "ema21", "ema50", "ema200", "bollinger", "volume", "rsi14", "oi"] as const;
+/** Quick-access studies per the platform spec (EMA suite, BB, Volume, RSI).
+ *  Open Interest is intentionally absent — no public provider supplies a
+ *  historical per-candle OI series, so a chart plot would be fabricated.
+ *  Live OI is available on the Radar Flow lane from the real futures feed. */
+const QUICK_IDS = ["ema9", "ema21", "ema50", "ema200", "bollinger", "volume", "rsi14"] as const;
 
 interface IndicatorDrawerProps {
   open: boolean;

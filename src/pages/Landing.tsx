@@ -132,7 +132,7 @@ const STEPS: { n: string; title: string; body: string }[] = [
 ];
 
 function HeroChartCard() {
-  const { candles } = useKlines("BTCUSDT", "15m");
+  const { candles, status } = useKlines("BTCUSDT", "15m");
   return (
     <motion.div
       initial={{ opacity: 0, y: 32, rotateX: 6 }}
@@ -154,12 +154,26 @@ function HeroChartCard() {
             </p>
           </div>
         </div>
-        <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-400">
+        <span
+          className={cn(
+            "flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold",
+            status === "LIVE"
+              ? "bg-emerald-500/10 text-emerald-400"
+              : "bg-amber-500/10 text-amber-400",
+          )}
+        >
           <span className="relative flex size-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+            {status === "LIVE" && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+            )}
+            <span
+              className={cn(
+                "relative inline-flex size-1.5 rounded-full",
+                status === "LIVE" ? "bg-emerald-500" : "bg-amber-500",
+              )}
+            />
           </span>
-          LIVE
+          {status === "LIVE" ? "LIVE" : status}
         </span>
       </div>
       <div className="h-[300px] overflow-hidden rounded-xl bg-[#050811]/90 p-1 ring-1 ring-white/5">
@@ -177,7 +191,9 @@ function HeroChartCard() {
       </div>
       <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-muted-foreground">
         <span>Custom canvas engine · live Binance tape</span>
-        <span>300 bars · auto-fits</span>
+        <span>
+          {candles.length > 0 ? `${candles.length} bars` : "no bars yet"} · auto-fits
+        </span>
       </div>
     </motion.div>
   );

@@ -139,13 +139,6 @@ function createIndicatorSeries(
     );
     s.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     store.set("volume", s);
-  } else if (id === "oi") {
-    const s = chart.addSeries(
-      LineSeries,
-      { color: "#00f0ff", lineWidth: 1, priceLineVisible: false, lastValueVisible: false },
-      pane,
-    );
-    store.set("oi", s);
   } else if (id === "macd") {
     store.set(
       "macd-hist",
@@ -277,19 +270,7 @@ function updateIndicatorSeries(
   else if (id === "ema21") series.setData(toLine(ema(closes, 21)));
   else if (id === "ema50") series.setData(toLine(ema(closes, 50)));
   else if (id === "ema200") series.setData(toLine(ema(closes, 200)));
-  else if (id === "oi") {
-    const base = ema(candles.map((c) => c.volume), 14);
-    series.setData(
-      toLine(
-        candles.map((c, i) => {
-          const b = base[i];
-          if (b == null) return null;
-          const noise = 0.88 + ((i * 7) % 24) / 100;
-          return b * noise;
-        }),
-      ),
-    );
-  } else if (id === "vwap") series.setData(toLine(vwap(candles)));
+  else if (id === "vwap") series.setData(toLine(vwap(candles)));
 }
 
 function pointSegDist(

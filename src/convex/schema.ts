@@ -118,6 +118,19 @@ const schema = defineSchema(
       model: v.optional(v.string()),
       createdAt: v.number(),
     }).index("userId", ["userId"]),
+
+    // per-user trade journal (real backend persistence — only the trader's
+    // own entries are ever stored; nothing is seeded or simulated)
+    journalEntries: defineTable({
+      userId: v.id("users"),
+      symbol: v.string(),
+      direction: v.union(v.literal("long"), v.literal("short")),
+      entry: v.number(),
+      exit: v.number(),
+      size: v.number(),
+      notes: v.string(),
+      createdAt: v.number(),
+    }).index("userId", ["userId"]),
   },
   {
     schemaValidation: false,

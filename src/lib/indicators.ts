@@ -181,9 +181,11 @@ export const INDICATORS: IndicatorDefinition[] = [
   /* Momentum */
   { id: "rsi14", name: "RSI 14", description: "Relative Strength Index (14)", category: "Momentum", color: "#00E676", pane: 0, tvStudy: "RSI@tv-basicstudies", access: "public" },
   { id: "macd", name: "MACD", description: "Moving average convergence divergence", category: "Momentum", color: "#00E676", pane: 0, tvStudy: "MACD@tv-basicstudies", access: "public" },
-  /* Volume */
+  /* Volume — Open Interest is deliberately NOT listed here: no public
+     provider supplies historical per-candle OI, so a chart series would
+     have to be fabricated. The live OI quote is available on the Radar
+     (Flow lane) from the real Binance futures feed instead. */
   { id: "volume", name: "Volume", description: "Bar volume histogram", category: "Volume", color: "#00E676", pane: 0, tvStudy: "Volume@tv-basicstudies", access: "public" },
-  { id: "oi", name: "Open Interest", description: "Derivatives open interest proxy", category: "Volume", color: "#00F0FF", pane: 0, access: "public" },
   /* Volatility */
   { id: "atr", name: "ATR 14", description: "Average true range (14)", category: "Volatility", color: "#F4C430", pane: 0, tvStudy: "ATR@tv-basicstudies", access: "public" },
   { id: "bollinger", name: "Bollinger Bands", description: "Volatility bands around SMA 20", category: "Volatility", color: "#00F0FF", pane: 0, tvStudy: "BB@tv-basicstudies", access: "public" },

@@ -1,13 +1,17 @@
-import { ArrowDown, ArrowUp, NotebookPen, Trash2 } from "lucide-react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { useMutation, useQuery } from "convex/react";
+import { ArrowDown, ArrowUp, Loader2, NotebookPen, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 interface JournalEntry {
-  id: string;
+  id: Id<"journalEntries">;
   symbol: string;
   direction: "long" | "short";
   entry: number;
@@ -26,13 +30,33 @@ const fmt = (n: number, digits = 2) =>
   });
 
 export default function TradeJournal() {
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const { user } = useAuth();
+  const authed = user != null;
+
+  /* Real backend persistence — the journal starts empty and only ever
+     contains entries the trader actually submits. No seeds, no samples. */
+  const docs = useQuery(api.journal.list, authed ? {} : "skip");
+  const addEntry = useMutation(api.journal.add);
+  const removeEntry = useMutation(api.journal.remove);
+
   const [symbol, setSymbol] = useState("XAUUSD");
   const [direction, setDirection] = useState<"long" | "short">("long");
   const [entry, setEntry] = useState("");
   const [exit, setExit] = useState("");
   const [size, setSize] = useState("");
   const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const entries: JournalEntry[] = (docs ?? []).map((d) => ({
+    id: d._id,
+    symbol: d.symbol,
+    direction: d.direction,
+    entry: d.entry,
+    exit: d.exit,
+    size: d.size,
+    notes: d.notes,
+    time: d.createdAt,
+  }));
 
   const pnlOf = (e: JournalEntry) =>
     (e.direction === "long" ? e.exit - e.entry : e.entry - e.exit) * e.size;
@@ -49,31 +73,44 @@ export default function TradeJournal() {
     { count: 0, wins: 0, net: 0 },
   );
 
-  const handleSubmit = (ev: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (ev: React.FormEvent<HTMLFormElement>) => {
     ev.preventDefault();
     const entryN = parseFloat(entry);
     const exitN = parseFloat(exit);
     const sizeN = parseFloat(size);
-    if (!isFinite(entryN) || !isFinite(exitN) || !isFinite(sizeN) || sizeN <= 0) {
+    if (
+      !isFinite(entryN) ||
+      !isFinite(exitN) ||
+      entryN <= 0 ||
+      !isFinite(sizeN) ||
+      sizeN <= 0 ||
+      saving
+    ) {
       return;
     }
-    setEntries((prev) => [
-      {
-        id: Math.random().toString(36).slice(2, 10),
+    setSaving(true);
+    try {
+      await addEntry({
         symbol,
         direction,
         entry: entryN,
         exit: exitN,
         size: sizeN,
         notes: notes.trim(),
-        time: Date.now(),
-      },
-      ...prev,
-    ]);
-    setEntry("");
-    setExit("");
-    setSize("");
-    setNotes("");
+      });
+      setEntry("");
+      setExit("");
+      setSize("");
+      setNotes("");
+    } catch {
+      /* keep the draft so nothing is lost */
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = (id: Id<"journalEntries">) => {
+    void removeEntry({ id });
   };
 
   const winRate = totals.count > 0 ? (totals.wins / totals.count) * 100 : 0;
@@ -88,8 +125,9 @@ export default function TradeJournal() {
           Review every trade you take
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-          Log entries and exits as you trade, then revisit the numbers —
-          the journal is where consistency is built.
+          Log entries and exits as you trade, then revisit the numbers — the
+          journal is where consistency is built. Entries persist to your
+          account on the backend.
         </p>
       </div>
 
@@ -206,8 +244,19 @@ export default function TradeJournal() {
               />
             </div>
 
-            <Button type="submit" className="h-9 rounded-lg bg-amber-400 text-[#0b101b] hover:bg-amber-300">
-              Add to journal
+            <Button
+              type="submit"
+              disabled={saving}
+              className="h-9 rounded-lg bg-amber-400 text-[#0b101b] hover:bg-amber-300"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Add to journal"
+              )}
             </Button>
           </div>
         </form>
@@ -250,7 +299,12 @@ export default function TradeJournal() {
           </div>
 
           <div className="glass min-h-[220px] flex-1 rounded-2xl p-4">
-            {entries.length === 0 ? (
+            {docs === undefined ? (
+              <div className="flex h-full min-h-[180px] items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading journal…
+              </div>
+            ) : entries.length === 0 ? (
               <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-2 text-center">
                 <NotebookPen className="size-6 text-slate-600" />
                 <p className="text-xs text-muted-foreground">
@@ -308,9 +362,7 @@ export default function TradeJournal() {
                         variant="ghost"
                         size="icon"
                         aria-label="Delete entry"
-                        onClick={() =>
-                          setEntries((prev) => prev.filter((x) => x.id !== e.id))
-                        }
+                        onClick={() => handleDelete(e.id)}
                         className="size-7 shrink-0 text-slate-500 hover:text-rose-400"
                       >
                         <Trash2 className="size-3.5" />
