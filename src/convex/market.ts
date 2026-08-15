@@ -3,17 +3,261 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 
+/* ---------------------------------------------------------------------------
+   Self-contained market types + helpers for the server proxy.
+   The Convex bundler resolves imports relative to src/convex only, so the
+   tiny helpers used here are duplicated from src/lib/market.ts rather than
+   imported — keep the shapes identical to the frontend contract.
+   ------------------------------------------------------------------------- */
+
+export interface Candle {
+  time: number; // epoch seconds
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export type MarketErrorCode =
+  | "SYMBOL_NOT_SUPPORTED"
+  | "TIMEFRAME_NOT_SUPPORTED"
+  | "PROVIDER_ERROR"
+  | "API_ERROR"
+  | "HTTP_ERROR"
+  | "EMPTY_RESPONSE"
+  | "INVALID_RESPONSE"
+  | "INVALID_CANDLE"
+  | "TIMESTAMP_ERROR"
+  | "DATA_GAP"
+  | "WEBSOCKET_ERROR"
+  | "STALE_DATA"
+  | "INSUFFICIENT_DATA"
+  | "CHART_ERROR";
+
+export interface MarketError {
+  code: MarketErrorCode;
+  message: string;
+}
+
+export interface KlinesResult {
+  ok: boolean;
+  symbol: string;
+  providerSymbol: string;
+  timeframe: string;
+  source: "binance" | "twelvedata";
+  serverTime: number | null;
+  candles: Candle[];
+  error?: MarketError;
+}
+
+const TF_MS: Record<string, number> = {
+  "1m": 60_000,
+  "5m": 300_000,
+  "15m": 900_000,
+  "30m": 1_800_000,
+  "1H": 3_600_000,
+  "4H": 14_400_000,
+  "12H": 43_200_000,
+  "1D": 86_400_000,
+  "1W": 604_800_000,
+};
+
+/** Map timeframe ms to the exact Binance interval string. */
+function resolveBinanceInterval(tfMs: number): string | null {
+  switch (tfMs) {
+    case 60_000: return "1m";
+    case 180_000: return "3m";
+    case 300_000: return "5m";
+    case 900_000: return "15m";
+    case 1_800_000: return "30m";
+    case 3_600_000: return "1h";
+    case 14_400_000: return "4h";
+    case 43_200_000: return "12h";
+    case 86_400_000: return "1d";
+    case 604_800_000: return "1w";
+    default: return null;
+  }
+}
+
+/** Strict validation + dedupe + sort — mirrors src/lib/market.ts sanitizeCandles. */
+function sanitizeCandles(rows: Candle[]): Candle[] {
+  const now = Math.floor(Date.now() / 1000);
+  const seen = new Map<number, Candle>();
+  for (const c of rows) {
+    const t = Number(c.time);
+    const o = Number(c.open);
+    const h = Number(c.high);
+    const l = Number(c.low);
+    const cl = Number(c.close);
+    const v = Number(c.volume);
+    if (![t, o, h, l, cl].every((n) => Number.isFinite(n))) continue;
+    if (!Number.isFinite(v)) continue;
+    if (t <= 0) continue;
+    if (t > now + 3600) continue;
+    if (h < Math.max(o, cl)) continue;
+    if (l > Math.min(o, cl)) continue;
+    if (h < l) continue;
+    seen.set(t, { time: t, open: o, high: h, low: l, close: cl, volume: v });
+  }
+  return [...seen.values()].sort((a, b) => a.time - b.time);
+}
+
 /**
  * Real multi-asset live market data.
  *
- * These actions proxy the Twelve Data REST API from the Convex backend
- * (which hides the API key and avoids browser CORS). Configure
- * `TWELVEDATA_API_KEY` in the deployment environment. When the key is
- * missing or a call fails they return null and the client shows honest
- * DATA UNAVAILABLE / CONNECTION ERROR states — nothing is fabricated.
+ * These actions proxy market-data providers from the Convex backend (which
+ * avoids browser CORS / sandbox network blocks and hides API keys). The
+ * Binance action needs no key; the Twelve Data action requires
+ * `TWELVEDATA_API_KEY` in the deployment environment. When a call fails the
+ * action returns a structured `{ ok: false, error: { code, message } }`
+ * result — the client shows honest DATA UNAVAILABLE / CONNECTION ERROR
+ * states, nothing is fabricated.
  */
 
 const TD_BASE = "https://api.twelvedata.com";
+const BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines";
+
+/* ------------------------- server-side Binance proxy ------------------------ */
+
+/** Map our canonical symbol ids to the exact Binance futures/spot symbols. */
+const BINANCE_SYMBOL: Record<string, string> = {
+  BTCUSDT: "BTCUSDT",
+  BTCUSD: "BTCUSDT",
+  ETHUSDT: "ETHUSDT",
+  SOLUSDT: "SOLUSDT",
+  BNBUSDT: "BNBUSDT",
+  XRPUSDT: "XRPUSDT",
+  DOGEUSDT: "DOGEUSDT",
+};
+
+function parseBinanceRow(row: unknown): Candle | null {
+  if (!Array.isArray(row) || row.length < 6) return null;
+  const rawTime = Number(row[0]);
+  const open = Number(row[1]);
+  const high = Number(row[2]);
+  const low = Number(row[3]);
+  const close = Number(row[4]);
+  const volume = Number(row[5]);
+  if (![rawTime, open, high, low, close].every((v) => Number.isFinite(v))) return null;
+  if (rawTime <= 0) return null;
+  return {
+    time: Math.floor(rawTime / 1000),
+    open,
+    high,
+    low,
+    close,
+    volume: Number.isFinite(volume) ? volume : 0,
+  };
+}
+
+/**
+ * Real historical Binance klines fetched server-side (no API key). This is
+ * the fallback the browser uses when the sandbox blocks direct Binance
+ * requests — same provider, same exact symbol (BTCUSDT), same validation.
+ */
+export const binanceKlines = action({
+  args: {
+    symbolId: v.string(),
+    timeframeId: v.string(),
+    limit: v.number(),
+  },
+  handler: async (_ctx, { symbolId, timeframeId, limit }): Promise<KlinesResult> => {
+    const binanceSymbol = BINANCE_SYMBOL[symbolId];
+    if (!binanceSymbol) {
+      return {
+        ok: false,
+        symbol: symbolId,
+        providerSymbol: symbolId,
+        timeframe: timeframeId,
+        source: "binance",
+        serverTime: null,
+        candles: [],
+        error: { code: "SYMBOL_NOT_SUPPORTED", message: `${symbolId} is not tradable on Binance.` },
+      };
+    }
+    const interval = resolveBinanceInterval(TF_MS[timeframeId] ?? 3_600_000);
+    if (!interval) {
+      return {
+        ok: false,
+        symbol: symbolId,
+        providerSymbol: binanceSymbol,
+        timeframe: timeframeId,
+        source: "binance",
+        serverTime: null,
+        candles: [],
+        error: { code: "TIMEFRAME_NOT_SUPPORTED", message: `Timeframe ${timeframeId} is not supported by Binance.` },
+      };
+    }
+    try {
+      const url = `${BINANCE_KLINE_URL}?symbol=${binanceSymbol}&interval=${interval}&limit=${Math.min(Math.max(limit, 50), 1000)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) {
+        return {
+          ok: false,
+          symbol: symbolId,
+          providerSymbol: binanceSymbol,
+          timeframe: timeframeId,
+          source: "binance",
+          serverTime: null,
+          candles: [],
+          error: { code: "HTTP_ERROR", message: `Binance proxy returned HTTP ${res.status} for ${binanceSymbol} ${interval}.` },
+        };
+      }
+      const rows = (await res.json()) as unknown[];
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return {
+          ok: false,
+          symbol: symbolId,
+          providerSymbol: binanceSymbol,
+          timeframe: timeframeId,
+          source: "binance",
+          serverTime: null,
+          candles: [],
+          error: { code: "EMPTY_RESPONSE", message: `Binance proxy returned no candles for ${binanceSymbol} ${interval}.` },
+        };
+      }
+      const parsed: Candle[] = [];
+      for (const row of rows) {
+        const c = parseBinanceRow(row);
+        if (c) parsed.push(c);
+      }
+      const candles = sanitizeCandles(parsed);
+      if (candles.length === 0) {
+        return {
+          ok: false,
+          symbol: symbolId,
+          providerSymbol: binanceSymbol,
+          timeframe: timeframeId,
+          source: "binance",
+          serverTime: null,
+          candles: [],
+          error: { code: "INVALID_CANDLE", message: `Binance proxy returned rows that failed OHLCV validation for ${binanceSymbol}.` },
+        };
+      }
+      return {
+        ok: true,
+        symbol: symbolId,
+        providerSymbol: binanceSymbol,
+        timeframe: timeframeId,
+        source: "binance",
+        serverTime: null,
+        candles,
+      };
+    } catch {
+      return {
+        ok: false,
+        symbol: symbolId,
+        providerSymbol: binanceSymbol,
+        timeframe: timeframeId,
+        source: "binance",
+        serverTime: null,
+        candles: [],
+        error: { code: "PROVIDER_ERROR", message: `Binance proxy request for ${binanceSymbol} failed.` },
+      };
+    }
+  },
+});
 
 /** Map our symbol ids to Twelve Data instrument codes. */
 const TD_SYMBOL: Record<string, string> = {
@@ -38,8 +282,10 @@ const TD_INTERVAL: Record<string, string> = {
   "1m": "1min",
   "5m": "5min",
   "15m": "15min",
+  "30m": "30min",
   "1H": "1h",
   "4H": "4h",
+  "12H": "12h",
   "1D": "1day",
 };
 

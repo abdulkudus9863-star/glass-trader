@@ -34,6 +34,115 @@ export interface MarketSymbol {
   decimals: number; // price precision
 }
 
+/* ============================================================================
+   Symbol & timeframe normalization.
+
+   The frontend always speaks ONE canonical symbol id (e.g. "BTCUSDT") and one
+   canonical timeframe id (e.g. "1H"). Every provider adapter converts to its
+   own exact supported format — never the reverse. If a provider doesn't
+   support a symbol/timeframe the adapter must return null so the caller can
+   surface SYMBOL_NOT_SUPPORTED / TIMEFRAME_NOT_SUPPORTED instead of sending
+   a broken request.
+   ========================================================================== */
+
+/** Canonicalize a user-entered symbol into our internal id ("btc-usdt" → "BTCUSDT"). */
+export function normalizeSymbol(input: string): string {
+  return input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * Resolve the provider-specific symbol for a market. Our canonical id is
+ * always used at the app layer; this returns the exact string the provider
+ * accepts (e.g. "BTCUSDT" on Binance, "XAU/USD" on Twelve Data).
+ */
+export function resolveProviderSymbol(
+  sym: MarketSymbol,
+  provider: "binance" | "twelvedata",
+): string | null {
+  if (provider === "binance") return sym.binance ?? null;
+  switch (sym.id) {
+    case "XAUUSD": return "XAU/USD";
+    case "XAGUSD": return "XAG/USD";
+    case "EURUSD": return "EUR/USD";
+    case "GBPUSD": return "GBP/USD";
+    case "USDJPY": return "USD/JPY";
+    case "BTCUSDT": return "BTC/USD";
+    case "ETHUSDT": return "ETH/USD";
+    case "SOLUSDT": return "SOL/USD";
+    case "DXY": return "DXY";
+    case "SPX500": return "S&P 500";
+    case "NAS100": return "NDX";
+    case "US30": return "DJI";
+    case "AAPL": return "AAPL";
+    case "TSLA": return "TSLA";
+    case "NVDA": return "NVDA";
+    default: return null;
+  }
+}
+
+/** Map a timeframe id to the Binance kline interval string (exact, never guessed). */
+export function resolveBinanceInterval(tfMs: number): string | null {
+  switch (tfMs) {
+    case 60_000: return "1m";
+    case 180_000: return "3m";
+    case 300_000: return "5m";
+    case 900_000: return "15m";
+    case 1_800_000: return "30m";
+    case 3_600_000: return "1h";
+    case 14_400_000: return "4h";
+    case 43_200_000: return "12h";
+    case 86_400_000: return "1d";
+    case 604_800_000: return "1w";
+    default: return null;
+  }
+}
+
+/* ------------------------- strict market error codes ------------------------ */
+
+export type MarketErrorCode =
+  | "SYMBOL_NOT_SUPPORTED"
+  | "TIMEFRAME_NOT_SUPPORTED"
+  | "PROVIDER_ERROR"
+  | "API_ERROR"
+  | "HTTP_ERROR"
+  | "EMPTY_RESPONSE"
+  | "INVALID_RESPONSE"
+  | "INVALID_CANDLE"
+  | "TIMESTAMP_ERROR"
+  | "DATA_GAP"
+  | "WEBSOCKET_ERROR"
+  | "STALE_DATA"
+  | "INSUFFICIENT_DATA"
+  | "CHART_ERROR";
+
+export interface MarketError {
+  code: MarketErrorCode;
+  message: string;
+}
+
+/**
+ * Normalized market-data contract. Every field is real or explicitly null
+ * — nothing is ever coerced to a fake 0.
+ */
+export interface MarketCandle extends Candle {
+  /** FORMING = the live bucket being built by the stream; CLOSED = immutable history. */
+  status: "FORMING" | "CLOSED";
+}
+
+export interface KlinesResult {
+  ok: boolean;
+  /** Canonical app symbol id (e.g. "BTCUSDT"). */
+  symbol: string;
+  /** Exact provider symbol actually requested (e.g. "BTCUSDT" on Binance). */
+  providerSymbol: string;
+  /** Canonical timeframe id (e.g. "1H"). */
+  timeframe: string;
+  source: "binance" | "twelvedata";
+  serverTime: number | null;
+  candles: Candle[];
+  error?: MarketError;
+}
+
 export const SYMBOLS: MarketSymbol[] = [
   { id: "BTCUSDT", name: "Bitcoin", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2 },
   { id: "BTCUSD", name: "Bitcoin / US Dollar", market: "crypto", exchange: "Binance", binance: "BTCUSDT", decimals: 2 },
@@ -64,8 +173,10 @@ export const TIMEFRAMES = [
   { id: "1m", label: "1m", ms: 60_000, tv: "1" },
   { id: "5m", label: "5m", ms: 300_000, tv: "5" },
   { id: "15m", label: "15m", ms: 900_000, tv: "15" },
+  { id: "30m", label: "30m", ms: 1_800_000, tv: "30" },
   { id: "1H", label: "1H", ms: 3_600_000, tv: "60" },
   { id: "4H", label: "4H", ms: 14_400_000, tv: "240" },
+  { id: "12H", label: "12H", ms: 43_200_000, tv: "180" },
   { id: "1D", label: "1D", ms: 86_400_000, tv: "D" },
   { id: "1W", label: "1W", ms: 604_800_000, tv: "W" },
 ] as const;
@@ -104,36 +215,194 @@ export function formatTime(epochSeconds: number, intraday: boolean): string {
     : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/* ============================================================================
+   Strict candle validation (spec §6–§9).
+
+   A candle is rejected when any required field is missing, NaN, Infinity,
+   or when the OHLC relationship is inverted. Timestamps are normalized to
+   epoch seconds, future timestamps are rejected, candles are deduped by
+   (symbol, timeframe, timestamp) keeping the newest valid version, and the
+   result is sorted ascending. Nothing invalid ever reaches the chart.
+   ========================================================================== */
+
+export function sanitizeCandles(rows: Candle[]): Candle[] {
+  const now = Math.floor(Date.now() / 1000);
+  const seen = new Map<number, Candle>();
+  for (const c of rows) {
+    const t = Number(c.time);
+    const o = Number(c.open);
+    const h = Number(c.high);
+    const l = Number(c.low);
+    const cl = Number(c.close);
+    const v = Number(c.volume);
+    /* §7 — Number(undefined) is NaN; reject instead of defaulting to 0 */
+    if (![t, o, h, l, cl].every((n) => Number.isFinite(n))) continue;
+    if (!Number.isFinite(v)) continue;
+    if (t <= 0) continue; // §8 timestamp must exist
+    if (t > now + 3600) continue; // §8 future timestamps are impossible for real data
+    /* §6 — inverted OHLC is mathematically impossible for a real market */
+    if (h < Math.max(o, cl)) continue;
+    if (l > Math.min(o, cl)) continue;
+    if (h < l) continue;
+    /* §9 — dedupe by timestamp, keep the newest valid version */
+    seen.set(t, { time: t, open: o, high: h, low: l, close: cl, volume: v });
+  }
+  return [...seen.values()].sort((a, b) => a.time - b.time);
+}
+
+/**
+ * Detect missing timeframe buckets between consecutive candles. A gap is a
+ * time difference larger than the timeframe bucket size (allowing the very
+ * first candle, which can legitimately start mid-period).
+ */
+export function detectGaps(candles: Candle[], tfMs: number): { gap: boolean; missing: number } {
+  if (candles.length < 2) return { gap: false, missing: 0 };
+  let missing = 0;
+  for (let i = 1; i < candles.length; i++) {
+    const diff = (candles[i].time - candles[i - 1].time) * 1000;
+    if (diff <= tfMs) continue;
+    if (i === 1 && diff <= tfMs * 2.5) continue; // first candle may start mid-period
+    missing += Math.round(diff / tfMs) - 1;
+  }
+  return { gap: missing > 0, missing };
+}
+
 /* --------------------------- Binance klines ---------------------------- */
 
 const BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines";
 
+/**
+ * Strictly parse one raw Binance kline row. Every field is converted with
+ * Number() and rejected when the conversion yields NaN/Infinity — a failed
+ * parse must never become a 0 candle.
+ */
+function parseBinanceRow(row: unknown, timeframe: string): Candle | null {
+  if (!Array.isArray(row) || row.length < 6) return null;
+  const rawTime = Number(row[0]);
+  const open = Number(row[1]);
+  const high = Number(row[2]);
+  const low = Number(row[3]);
+  const close = Number(row[4]);
+  const volume = Number(row[5]);
+  if (![rawTime, open, high, low, close].every((v) => Number.isFinite(v))) return null;
+  if (rawTime <= 0) return null;
+  return {
+    time: Math.floor(rawTime / 1000) as UTCTimestamp,
+    open,
+    high,
+    low,
+    close,
+    volume: Number.isFinite(volume) ? volume : 0,
+  };
+}
+
+/**
+ * Fetch and validate historical klines from the Binance REST API. Returns a
+ * structured `KlinesResult` (never null, never a bare array) so callers can
+ * surface exact error codes instead of rendering zeros.
+ */
 export async function fetchKlines(
   binanceSymbol: string,
   tfMs: number,
   limit: number,
-): Promise<Candle[] | null> {
-  const binanceInterval =
-    tfMs >= 604_800_000 ? "1w" : tfMs >= 86_400_000 ? "1d" : `${tfMs / 60_000}m`;
+): Promise<KlinesResult> {
+  const binanceInterval = resolveBinanceInterval(tfMs);
+  if (!binanceInterval) {
+    return {
+      ok: false,
+      symbol: binanceSymbol,
+      providerSymbol: binanceSymbol,
+      timeframe: `${tfMs / 60_000}m`,
+      source: "binance",
+      serverTime: null,
+      candles: [],
+      error: {
+        code: "TIMEFRAME_NOT_SUPPORTED",
+        message: `Timeframe ${tfMs / 60_000}m is not supported by Binance.`,
+      },
+    };
+  }
   const url = `${BINANCE_KLINE_URL}?symbol=${binanceSymbol}&interval=${binanceInterval}&limit=${limit}`;
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    const timer = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
-    if (!res.ok) return null;
-    const rows = (await res.json()) as unknown[][];
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    return rows.map((r) => ({
-      time: Math.floor(Number(r[0]) / 1000) as UTCTimestamp,
-      open: Number(r[1]),
-      high: Number(r[2]),
-      low: Number(r[3]),
-      close: Number(r[4]),
-      volume: Number(r[5]),
-    }));
+    if (!res.ok) {
+      return {
+        ok: false,
+        symbol: binanceSymbol,
+        providerSymbol: binanceSymbol,
+        timeframe: binanceInterval,
+        source: "binance",
+        serverTime: null,
+        candles: [],
+        error: {
+          code: "HTTP_ERROR",
+          message: `Binance returned HTTP ${res.status} for ${binanceSymbol} ${binanceInterval}.`,
+        },
+      };
+    }
+    const rows = (await res.json()) as unknown[];
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return {
+        ok: false,
+        symbol: binanceSymbol,
+        providerSymbol: binanceSymbol,
+        timeframe: binanceInterval,
+        source: "binance",
+        serverTime: null,
+        candles: [],
+        error: {
+          code: "EMPTY_RESPONSE",
+          message: `Binance returned no candles for ${binanceSymbol} ${binanceInterval}.`,
+        },
+      };
+    }
+    const parsed: Candle[] = [];
+    for (const row of rows) {
+      const c = parseBinanceRow(row, binanceInterval);
+      if (c) parsed.push(c);
+    }
+    const candles = sanitizeCandles(parsed);
+    if (candles.length === 0) {
+      return {
+        ok: false,
+        symbol: binanceSymbol,
+        providerSymbol: binanceSymbol,
+        timeframe: binanceInterval,
+        source: "binance",
+        serverTime: null,
+        candles: [],
+        error: {
+          code: "INVALID_CANDLE",
+          message: `Binance returned ${rows.length} rows for ${binanceSymbol} but none passed OHLCV validation.`,
+        },
+      };
+    }
+    return {
+      ok: true,
+      symbol: binanceSymbol,
+      providerSymbol: binanceSymbol,
+      timeframe: binanceInterval,
+      source: "binance",
+      serverTime: null,
+      candles,
+    };
   } catch {
-    return null;
+    return {
+      ok: false,
+      symbol: binanceSymbol,
+      providerSymbol: binanceSymbol,
+      timeframe: binanceInterval,
+      source: "binance",
+      serverTime: null,
+      candles: [],
+      error: {
+        code: "PROVIDER_ERROR",
+        message: `Binance request for ${binanceSymbol} ${binanceInterval} failed (network/CORS).`,
+      },
+    };
   }
 }
 

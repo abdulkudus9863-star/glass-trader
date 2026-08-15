@@ -166,11 +166,13 @@ export interface DeeeprInput {
 const PIVOT_WINDOW = 3;
 const MIN_CANDLES = 60;
 const MIN_RR = 2.0;
-const MTF_PRIORITY = ["1D", "4H", "1H", "15M", "5M", "1m", "1M"];
+const MTF_PRIORITY = ["1D", "12H", "4H", "1H", "30M", "15M", "5M", "1m", "1M"];
 const MTF_WEIGHT: Record<string, number> = {
   "1D": 5,
+  "12H": 4.5,
   "4H": 4,
   "1H": 3,
+  "30M": 2.5,
   "15M": 2,
   "5M": 1,
   "1m": 0.5,

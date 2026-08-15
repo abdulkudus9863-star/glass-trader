@@ -81,7 +81,8 @@ export default function ChartCanvas({
   founderBadge = false,
   strategies = [],
 }: ChartCanvasProps) {
-  const { candles, source, status } = useKlines(symbolId, intervalId);
+  const klines = useKlines(symbolId, intervalId);
+  const { candles, source, status, error, errorCode, providerSymbol, ageSeconds, gap, missingCandles, retry, latencyMs, updatedAt, freshness } = klines;
   const [tvReady, setTvReady] = useState(false);
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const tf = getTimeframe(intervalId);
@@ -159,6 +160,21 @@ export default function ChartCanvas({
           readoutOffset={founderBadge}
           strategies={strategies}
           smc={smc ? smc.overlay : null}
+          feed={{
+            status,
+            error,
+            errorCode,
+            source,
+            providerSymbol,
+            ageSeconds,
+            latencyMs,
+            updatedAt,
+            freshness,
+            gap,
+            missingCandles,
+            candleCount: candles.length,
+            retry,
+          }}
         />
       )}
       {showWidget && (
@@ -190,20 +206,27 @@ export default function ChartCanvas({
             "pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[9px] font-bold tracking-wider backdrop-blur-sm",
             status === "LIVE"
               ? "border-[#00E676]/30 bg-[#0b101b]/75 text-[#00E676]"
-              : "border-[#F4C430]/30 bg-[#0b101b]/75 text-[#F4C430]",
+              : status === "ERROR"
+                ? "border-[#FF1744]/40 bg-[#0b101b]/75 text-[#FF1744]"
+                : "border-[#F4C430]/30 bg-[#0b101b]/75 text-[#F4C430]",
           )}
           title={
-            source === "binance"
-              ? "Real Binance candles"
-              : source === "twelvedata"
-                ? "Real Twelve Data candles via the backend proxy"
-                : status
+            error ??
+              (source === "binance"
+                ? "Real Binance candles"
+                : source === "twelvedata"
+                  ? "Real Twelve Data candles via the backend proxy"
+                  : status)
           }
         >
           <span
             className={cn(
               "size-1.5 rounded-full",
-              status === "LIVE" ? "bg-[#00E676]" : "bg-[#F4C430]",
+              status === "LIVE"
+                ? "bg-[#00E676]"
+                : status === "ERROR"
+                  ? "bg-[#FF1744]"
+                  : "bg-[#F4C430]",
             )}
           />
           {status === "LIVE"
@@ -212,7 +235,9 @@ export default function ChartCanvas({
               : source === "twelvedata"
                 ? "LIVE · TWELVEDATA"
                 : "LIVE"
-            : status}
+            : status === "ERROR"
+              ? errorCode ?? "ERROR"
+              : status}
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { Bug, Loader2, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BarSeries,
@@ -20,11 +21,13 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
+import type { KlineStatus, DataFreshness } from "@/hooks/use-klines";
 import { getIndicator } from "@/lib/indicators";
 import { type SmcOverlay } from "@/lib/smc";
 import type { StrategyOverlay } from "@/lib/strategy";
 import {
   type Candle,
+  type MarketError,
   atr,
   detectFVG,
   ema,
@@ -85,6 +88,23 @@ interface Readout {
   volume: number;
 }
 
+/** Honest feed state surfaced by the chart (never fabricates values). */
+export interface ChartFeed {
+  status: KlineStatus;
+  error: string | null;
+  errorCode: MarketError["code"] | null;
+  source: "binance" | "twelvedata" | null;
+  providerSymbol: string | null;
+  ageSeconds: number | null;
+  latencyMs: number | null;
+  updatedAt: number | null;
+  freshness: DataFreshness;
+  gap: boolean;
+  missingCandles: number;
+  candleCount: number;
+  retry: () => void;
+}
+
 interface CustomChartProps {
   candles: Candle[];
   symbolId: string;
@@ -102,6 +122,8 @@ interface CustomChartProps {
   strategies?: StrategyOverlay[];
   /** Live SMC overlays (watch zones, whale walls, swing S/R) for this symbol. */
   smc?: SmcOverlay | null;
+  /** Live feed state — drives LOADING / ERROR / STALE / LIVE overlays. */
+  feed?: ChartFeed | null;
 }
 
 /* ------------------------- series data helpers -------------------------- */
@@ -316,6 +338,7 @@ export default function CustomChart({
   readoutOffset = false,
   strategies = [],
   smc = null,
+  feed = null,
 }: CustomChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -356,9 +379,15 @@ export default function CustomChart({
 
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [rects, setRects] = useState<RectBox[]>([]);
-  const [readout, setReadout] = useState<Readout>(() =>
-    fromCandle(candles[candles.length - 1] ?? emptyCandle()),
-  );
+  /* CRITICAL FIX — the readout must never be seeded from a zero candle.
+     When the feed is empty it stays null and the chart shows the honest
+     LOADING / ERROR / STALE overlay instead of O 0.00 H 0.00 L 0.00 C 0.00. */
+  const [readout, setReadout] = useState<Readout | null>(() => {
+    const last = candles[candles.length - 1];
+    return last ? fromCandle(last) : null;
+  });
+  /* debug diagnostics panel toggle (§25) */
+  const [debugOpen, setDebugOpen] = useState(false);
 
   drawingsRef.current = drawings;
 
@@ -679,7 +708,9 @@ export default function CustomChart({
     }
     syncMarkers();
     computeRects();
-    if (!hoverRef.current) setReadout(fromCandle(c[c.length - 1]));
+    if (!hoverRef.current) {
+      setReadout(c.length > 0 ? fromCandle(c[c.length - 1]) : null);
+    }
   }, [computeRects, syncMarkers]);
 
   const rebuildSeriesStructure = useCallback(() => {
@@ -790,7 +821,7 @@ export default function CustomChart({
         setReadout(fromCandle(hovered));
       } else {
         hoverRef.current = false;
-        if (c.length) setReadout(fromCandle(c[c.length - 1]));
+        setReadout(c.length > 0 ? fromCandle(c[c.length - 1]) : null);
       }
     },
     [],
@@ -1007,9 +1038,14 @@ export default function CustomChart({
 
   /* ------------------------------- render -------------------------------- */
 
+  const hasCandles = candles.length > 0;
   const changePct =
-    readout.open > 0 ? ((readout.close - readout.open) / readout.open) * 100 : 0;
-  const up = readout.close >= readout.open;
+    readout != null && readout.open > 0
+      ? ((readout.close - readout.open) / readout.open) * 100
+      : null;
+  const up = readout != null && readout.close >= readout.open;
+  const feedStatus = feed?.status ?? (hasCandles ? "LIVE" : "CONNECTING");
+  const chip = feedStatusChip(feedStatus);
 
   return (
     <div
@@ -1017,49 +1053,173 @@ export default function CustomChart({
       className={cn("relative h-full w-full min-h-0", className)}
       style={{ height: "100%", width: "100%", overflow: "hidden" }}
     >
-      {/* OHLC readout + overlay legend */}
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-x-3 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-1 pr-24 text-[11px] font-medium tabular-nums sm:pr-28",
-          readoutOffset ? "top-9" : "top-2",
-        )}
-      >
-        <span className="font-semibold text-slate-200">
-          {symbolId}
-          <span className="ml-1.5 font-normal text-slate-500">
-            {formatTime(readout.time, intraday)}
-          </span>
-        </span>
-        <span className="text-slate-400">
-          O <span className="text-slate-200">{formatPrice(readout.open, decimals)}</span>
-        </span>
-        <span className="text-slate-400">
-          H <span className="text-emerald-400">{formatPrice(readout.high, decimals)}</span>
-        </span>
-        <span className="text-slate-400">
-          L <span className="text-rose-400">{formatPrice(readout.low, decimals)}</span>
-        </span>
-        <span className="text-slate-400">
-          C <span className={up ? "text-emerald-400" : "text-rose-400"}>{formatPrice(readout.close, decimals)}</span>
-        </span>
-        <span className="text-slate-500">Vol {formatCompact(readout.volume)}</span>
-        <span
-          className={cn(
-            "rounded px-1 py-px text-[10px] font-semibold",
-            up ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400",
-          )}
-        >
-          {formatPercent(changePct)}
-        </span>
+      {/* ------- feed state overlays (LOADING / ERROR / STALE) ------- */}
+      {!hasCandles && feedStatus !== "ERROR" && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#050811]/60 backdrop-blur-[1px]">
+          <Loader2 className="size-6 animate-spin text-[#F4C430]" />
+          <p className="font-display text-sm font-bold tracking-tight text-slate-200">
+            LOADING MARKET DATA…
+          </p>
+          <p className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
+            {symbolId} · {feed?.providerSymbol ?? symbolId} · {feedStatus}
+          </p>
+        </div>
+      )}
 
-        {/* Overlay legend — wraps below the readout on narrow screens */}
-        <span className="ml-auto flex flex-wrap items-center gap-x-2.5 text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-          <span className="flex items-center gap-1">🟡 Whale wall</span>
-          <span className="flex items-center gap-1">➖ Swing S/R</span>
-          <span className="flex items-center gap-1">🟢 Liquidity zone</span>
-          <span className="flex items-center gap-1">🔵 Watch zone</span>
-        </span>
-      </div>
+      {!hasCandles && feedStatus === "ERROR" && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          <span className="flex items-center gap-2 rounded-full border border-[#FF1744]/40 bg-[#FF1744]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#FF1744]">
+            <WifiOff className="size-3.5" />
+            MARKET DATA ERROR
+          </span>
+          <p className="max-w-md text-xs leading-5 text-slate-400">
+            {feed?.error ?? "MARKET DATA UNAVAILABLE — no live provider responded."}
+          </p>
+          <button
+            type="button"
+            onClick={() => feed?.retry()}
+            className="flex items-center gap-2 rounded-lg border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2 text-xs font-bold text-[#F4C430] transition-colors hover:bg-[#F4C430]/20"
+          >
+            <RefreshCw className="size-3.5" />
+            RETRY DATA
+          </button>
+        </div>
+      )}
+
+      {/* ------- top status chip: BTCUSDT · 1H 🟢 LIVE ------- */}
+      {hasCandles && (
+        <div className="pointer-events-none absolute inset-x-3 top-2 z-10 flex items-center gap-2">
+          <span className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0b101b]/80 px-2.5 py-1 font-mono text-[10px] font-bold tracking-wider text-slate-200 backdrop-blur-sm">
+            <span className={cn("size-1.5 rounded-full", chip.dot)} />
+            {symbolId} · {chip.label}
+            {feedStatus === "LIVE" && feed?.source === "binance" && (
+              <span className="text-[8px] font-semibold text-slate-500">BINANCE</span>
+            )}
+          </span>
+          {feedStatus !== "LIVE" && feed?.ageSeconds != null && (
+            <span className="rounded-full border border-white/10 bg-[#0b101b]/80 px-2 py-0.5 font-mono text-[9px] text-slate-400 backdrop-blur-sm">
+              {feed.ageSeconds}s ago
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ------- debug diagnostics panel (§25) ------- */}
+      {debugOpen && (
+        <div className="absolute right-2 top-10 z-30 w-[240px] rounded-xl border border-[#1B263B] bg-[#0b101b]/95 p-3 backdrop-blur-xl">
+          <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-[#00F0FF]">
+            MARKET DATA · DIAGNOSTICS
+          </p>
+          <DebugRow
+            label="Provider"
+            value={
+              feed?.source === "binance"
+                ? "Binance"
+                : feed?.source === "twelvedata"
+                  ? "Twelve Data"
+                  : "—"
+            }
+          />
+          <DebugRow
+            label="Provider status"
+            value={feedStatus === "LIVE" ? "CONNECTED" : feedStatus}
+            tone={feedStatus === "LIVE" ? "ok" : feedStatus === "ERROR" ? "bad" : "warn"}
+          />
+          <DebugRow label="Symbol" value={symbolId} />
+          <DebugRow label="Provider symbol" value={feed?.providerSymbol ?? "—"} />
+          <DebugRow label="Historical candles" value={String(candles.length)} />
+          <DebugRow
+            label="Last candle"
+            value={readout ? formatTime(readout.time, intraday) : "—"}
+          />
+          <DebugRow
+            label="Current price"
+            value={readout ? formatPrice(readout.close, decimals) : "—"}
+          />
+          <DebugRow
+            label="Last tick"
+            value={feed?.ageSeconds == null ? "—" : `${feed.ageSeconds}s ago`}
+          />
+          <DebugRow label="WebSocket" value={feedStatus} />
+          <DebugRow
+            label="Data gap"
+            value={feed?.gap ? `${feed.missingCandles} bucket(s) missing` : "NONE"}
+            tone={feed?.gap ? "bad" : "ok"}
+          />
+          <DebugRow
+            label="Chart"
+            value={hasCandles ? "READY" : "LOADING"}
+            tone={hasCandles ? "ok" : "warn"}
+          />
+          <DebugRow
+            label="Indicators"
+            value={candles.length >= 30 ? "READY" : "INSUFFICIENT"}
+            tone={candles.length >= 30 ? "ok" : "warn"}
+          />
+          <DebugRow
+            label="Trade AI"
+            value={
+              feedStatus === "LIVE" && !feed?.gap && candles.length >= 60
+                ? "READY"
+                : "DISABLED"
+            }
+            tone={
+              feedStatus === "LIVE" && !feed?.gap && candles.length >= 60
+                ? "ok"
+                : "warn"
+            }
+          />
+        </div>
+      )}
+
+      {/* ------- OHLC readout + overlay legend (only with real candles) ------- */}
+      {readout && (
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-3 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-1 pr-24 text-[11px] font-medium tabular-nums sm:pr-28",
+            readoutOffset ? "top-9" : "top-2",
+          )}
+          style={hasCandles ? { top: 44 } : undefined}
+        >
+          <span className="font-semibold text-slate-200">
+            {symbolId}
+            <span className="ml-1.5 font-normal text-slate-500">
+              {formatTime(readout.time, intraday)}
+            </span>
+          </span>
+          <span className="text-slate-400">
+            O <span className="text-slate-200">{formatPrice(readout.open, decimals)}</span>
+          </span>
+          <span className="text-slate-400">
+            H <span className="text-emerald-400">{formatPrice(readout.high, decimals)}</span>
+          </span>
+          <span className="text-slate-400">
+            L <span className="text-rose-400">{formatPrice(readout.low, decimals)}</span>
+          </span>
+          <span className="text-slate-400">
+            C <span className={up ? "text-emerald-400" : "text-rose-400"}>{formatPrice(readout.close, decimals)}</span>
+          </span>
+          <span className="text-slate-500">Vol {formatCompact(readout.volume)}</span>
+          {changePct != null && (
+            <span
+              className={cn(
+                "rounded px-1 py-px text-[10px] font-semibold",
+                up ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400",
+              )}
+            >
+              {formatPercent(changePct)}
+            </span>
+          )}
+
+          {/* Overlay legend — wraps below the readout on narrow screens */}
+          <span className="ml-auto flex flex-wrap items-center gap-x-2.5 text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+            <span className="flex items-center gap-1">🟡 Whale wall</span>
+            <span className="flex items-center gap-1">➖ Swing S/R</span>
+            <span className="flex items-center gap-1">🟢 Liquidity zone</span>
+            <span className="flex items-center gap-1">🔵 Watch zone</span>
+          </span>
+        </div>
+      )}
 
       {/* rectangle / FVG / watch-zone overlays */}
       {rects.map((r, i) => (
@@ -1098,6 +1258,21 @@ export default function CustomChart({
         </div>
       ))}
 
+      {/* debug toggle (bottom-right) */}
+      <button
+        type="button"
+        aria-label="Toggle market data diagnostics"
+        onClick={() => setDebugOpen((o) => !o)}
+        className={cn(
+          "absolute bottom-2.5 right-2 z-30 flex size-7 items-center justify-center rounded-md border backdrop-blur-sm transition-colors",
+          debugOpen
+            ? "border-[#00F0FF]/50 bg-[#00F0FF]/10 text-[#00F0FF]"
+            : "border-white/10 bg-[#0b101b]/70 text-slate-500 hover:text-slate-300",
+        )}
+      >
+        <Bug className="size-3.5" />
+      </button>
+
       {/* active drawing tool hint */}
       {tool && tool !== "eraser" && tool !== "clear" && (
         <div className="glass-chip pointer-events-none absolute bottom-2.5 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium text-slate-300">
@@ -1108,8 +1283,53 @@ export default function CustomChart({
   );
 }
 
-function emptyCandle(): Candle {
-  return { time: 0, open: 0, high: 0, low: 0, close: 0, volume: 0 };
+function feedStatusChip(status: KlineStatus): { dot: string; label: string; text: string } {
+  switch (status) {
+    case "LIVE":
+      return { dot: "bg-[#00E676]", label: "LIVE", text: "text-[#00E676]" };
+    case "STALE":
+      return { dot: "bg-[#F4C430]", label: "STALE", text: "text-[#F4C430]" };
+    case "RESYNCING":
+      return { dot: "bg-[#F4C430]", label: "RESYNCING", text: "text-[#F4C430]" };
+    case "RECONNECTING":
+      return { dot: "bg-[#F4C430]", label: "RECONNECTING", text: "text-[#F4C430]" };
+    case "ERROR":
+      return { dot: "bg-[#FF1744]", label: "ERROR", text: "text-[#FF1744]" };
+    default:
+      return { dot: "bg-slate-400", label: "CONNECTING", text: "text-slate-300" };
+  }
+}
+
+function DebugRow({
+  label,
+  value,
+  tone = "neu",
+}: {
+  label: string;
+  value: string;
+  tone?: "ok" | "warn" | "bad" | "neu";
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-white/5 py-1 last:border-0">
+      <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+        {label}
+      </span>
+      <span
+        className={cn(
+          "font-mono text-[10px] font-semibold",
+          tone === "ok"
+            ? "text-[#00E676]"
+            : tone === "bad"
+              ? "text-[#FF1744]"
+              : tone === "warn"
+                ? "text-[#F4C430]"
+                : "text-slate-300",
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  );
 }
 
 function fromCandle(c: Candle): Readout {

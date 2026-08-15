@@ -1,6 +1,6 @@
 import { api } from "@/convex/_generated/api";
 import { useAction } from "convex/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getBinanceSocketStatus,
   subscribeBinanceKlines,
@@ -9,9 +9,14 @@ import {
 } from "@/lib/realtime";
 import {
   type Candle,
+  type MarketError,
+  detectGaps,
   findSymbol,
   fetchKlines,
   getTimeframe,
+  normalizeSymbol,
+  resolveProviderSymbol,
+  sanitizeCandles,
   type TimeframeId,
 } from "@/lib/market";
 
@@ -30,8 +35,11 @@ export interface KlinesState {
   candles: Candle[];
   /** null = no real feed available right now. */
   source: "binance" | "twelvedata" | null;
+  /** Exact provider symbol actually requested (e.g. "BTCUSDT" on Binance). */
+  providerSymbol: string | null;
   status: KlineStatus;
   error: string | null;
+  errorCode: MarketError["code"] | null;
   latencyMs: number | null;
   updatedAt: number | null;
   /** Age of the newest candle data in seconds (null while connecting). */
@@ -43,72 +51,70 @@ export interface KlinesState {
   /** How many expected candle buckets are missing (gap detection). */
   missingCandles: number;
   candleCount: number;
-}
-
-/** Drop malformed / inverted / out-of-order candles and dedupe by time. */
-export function sanitizeCandles(rows: Candle[]): Candle[] {
-  const seen = new Map<number, Candle>();
-  for (const c of rows) {
-    if (!Number.isFinite(c.time) || !Number.isFinite(c.open) || !Number.isFinite(c.close)) continue;
-    if (c.high < Math.max(c.open, c.close) || c.low > Math.min(c.open, c.close)) continue;
-    if (c.high < c.low) continue;
-    const now = Math.floor(Date.now() / 1000);
-    if (c.time > now + 3600) continue; // reject future timestamps
-    seen.set(c.time, c);
-  }
-  return [...seen.values()].sort((a, b) => a.time - b.time);
-}
-
-/**
- * Detect missing timeframe buckets between consecutive candles. A gap is a
- * time difference larger than the timeframe bucket size (allowing the very
- * first candle, which can legitimately start mid-period).
- */
-export function detectGaps(candles: Candle[], tfMs: number): { gap: boolean; missing: number } {
-  if (candles.length < 2) return { gap: false, missing: 0 };
-  let missing = 0;
-  for (let i = 1; i < candles.length; i++) {
-    const diff = (candles[i].time - candles[i - 1].time) * 1000;
-    if (diff <= tfMs) continue;
-    if (i === 1 && diff <= tfMs * 2.5) continue; // first candle may start mid-period
-    missing += Math.round(diff / tfMs) - 1;
-  }
-  return { gap: missing > 0, missing };
+  /** Re-request history + reconnect the stream (used by the RETRY button). */
+  retry: () => void;
 }
 
 const POLL_MS = 45_000;
+const REFRESH_MS = 4 * 60_000;
+
+/* ---------------------------------------------------------------------------
+   Structured pipeline logging (§1) — temporary developer diagnostics. Logs
+   symbol / provider symbol / timeframe / status / counts / first-last candle
+   / error code. Never logs API keys or tokens.
+   ------------------------------------------------------------------------- */
+function logPipeline(
+  event: string,
+  fields: Record<string, string | number | boolean | null | undefined>,
+): void {
+  // eslint-disable-next-line no-console
+  console.debug(`[market-data] ${event}`, fields);
+}
 
 /**
  * Live kline stream for one symbol/timeframe.
  *
  * Honest by construction:
- *   - crypto  → real Binance REST history + real `@kline` WebSocket updates
+ *   - crypto  → real Binance history (browser REST first, then the
+ *     server-side Binance proxy when the sandbox blocks direct calls) +
+ *     real `@kline` WebSocket updates
  *   - others  → real Twelve Data candles via the backend (polled)
- *   - no provider data → `status: "ERROR"`, empty candles, human-readable
- *     error. NO synthetic candles are ever generated.
+ *   - no provider data → `status: "ERROR"`, empty candles, an error code +
+ *     human-readable message. NO synthetic candles are ever generated.
  *
  * Realtime hygiene: the current candle is updated in place (never appended
  * twice), late/out-of-order frames are ignored, reconnects trigger a
  * RESYNCING phase that refetches history, and `freshness` never claims LIVE
- * when the feed has gone silent.
+ * when the feed has gone silent. RETRY re-runs the whole sequence with
+ * exponential backoff on repeated failures.
  */
 export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesState {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [source, setSource] = useState<"binance" | "twelvedata" | null>(null);
+  const [providerSymbol, setProviderSymbol] = useState<string | null>(null);
   const [status, setStatus] = useState<KlineStatus>("CONNECTING");
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<MarketError["code"] | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [retryKey, setRetryKey] = useState(0);
   const lastKlineAtRef = useRef(0);
   const candlesRef = useRef<Candle[]>(candles);
   const erroredRef = useRef(false);
   const resyncingRef = useRef(false);
   const statusRef = useRef<KlineStatus>("CONNECTING");
+  const attemptRef = useRef(0);
   const klinesAction = useAction(api.market.klines);
+  const binanceAction = useAction(api.market.binanceKlines);
   const sym = useMemo(() => findSymbol(symbolId), [symbolId]);
   const tf = useMemo(() => getTimeframe(intervalId), [intervalId]);
   candlesRef.current = candles;
+
+  const retry = useCallback(() => {
+    attemptRef.current = 0;
+    setRetryKey((k) => k + 1);
+  }, []);
 
   /* ticking clock so age / freshness stay honest without new market data */
   useEffect(() => {
@@ -142,11 +148,15 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
   }, [status, updatedAt, now, source]);
 
   useEffect(() => {
-    if (!sym) {
+    const canonical = normalizeSymbol(symbolId);
+    const resolved = findSymbol(canonical);
+    if (!resolved || resolved.id !== canonical) {
       setCandles([]);
       setSource(null);
+      setProviderSymbol(null);
       setStatus("ERROR");
-      setError(`Unknown symbol ${symbolId}.`);
+      setErrorCode("SYMBOL_NOT_SUPPORTED");
+      setError(`SYMBOL_NOT_SUPPORTED — "${symbolId}" is not in the market catalog.`);
       return;
     }
 
@@ -157,18 +167,75 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
     statusRef.current = "CONNECTING";
     setCandles([]);
     setSource(null);
+    setProviderSymbol(null);
     setStatus("CONNECTING");
     setError(null);
+    setErrorCode(null);
     setLatencyMs(null);
     setUpdatedAt(null);
 
     let unsubKline: (() => void) | null = null;
     let unsubStatus: (() => void) | null = null;
     let staleTimer: ReturnType<typeof setInterval> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const setStatusSafe = (s: KlineStatus) => {
       statusRef.current = s;
       setStatus(s);
+    };
+
+    const applyHistory = (clean: Candle[], src: "binance" | "twelvedata", provSymbol: string) => {
+      if (cancelled || clean.length === 0) return;
+      erroredRef.current = false;
+      attemptRef.current = 0;
+      setCandles(clean);
+      setSource(src);
+      setProviderSymbol(provSymbol);
+      setUpdatedAt(Date.now());
+      setError(null);
+      setErrorCode(null);
+      if (resyncingRef.current) {
+        resyncingRef.current = false;
+        setStatusSafe("LIVE");
+      } else if (lastKlineAtRef.current === 0) {
+        setStatusSafe("CONNECTING");
+      } else {
+        setStatusSafe("LIVE");
+      }
+      logPipeline("history.ok", {
+        symbol: canonical,
+        providerSymbol: provSymbol,
+        source: src,
+        timeframe: intervalId,
+        candleCount: clean.length,
+        firstTime: clean[0]?.time,
+        lastTime: clean[clean.length - 1]?.time,
+        lastClose: clean[clean.length - 1]?.close,
+      });
+    };
+
+    const markError = (err: MarketError) => {
+      if (cancelled) return;
+      erroredRef.current = true;
+      setSource(null);
+      setProviderSymbol(null);
+      setStatusSafe("ERROR");
+      setErrorCode(err.code);
+      setError(`${err.code} — ${err.message}`);
+      logPipeline("history.error", {
+        symbol: canonical,
+        timeframe: intervalId,
+        code: err.code,
+        message: err.message,
+      });
+      /* automatic retry with exponential backoff — bounded, never infinite */
+      attemptRef.current += 1;
+      if (attemptRef.current <= 4) {
+        const delay = Math.min(1000 * 2 ** attemptRef.current, 30_000);
+        retryTimer = setTimeout(() => {
+          if (!cancelled) setRetryKey((k) => k + 1);
+        }, delay);
+      }
     };
 
     const markStale = () => {
@@ -208,30 +275,43 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
       });
     };
 
-    if (sym.binance) {
-      /* ---- crypto: Binance REST history + kline WebSocket ---- */
+    if (resolved.binance) {
+      /* ---- crypto: Binance history (browser REST → server proxy) + WS ---- */
       const load = async () => {
-        const real = await fetchKlines(sym.binance!, tf.ms, 300);
-        if (cancelled) return;
-        const clean = real ? sanitizeCandles(real) : [];
-        if (clean.length > 0) {
-          erroredRef.current = false;
-          setCandles(clean);
-          setSource("binance");
-          setUpdatedAt(Date.now());
-          if (resyncingRef.current) {
-            resyncingRef.current = false;
-            setStatusSafe("LIVE");
-          } else if (lastKlineAtRef.current === 0) {
-            setStatusSafe("CONNECTING");
+        /* 1. try the browser → Binance REST request */
+        let result = await fetchKlines(resolved.binance!, tf.ms, 300);
+        if (!result.ok) {
+          /* 2. sandbox/CORS blocked — fall back to the server-side proxy
+                (same provider, same exact symbol, server-side fetch) */
+          const proxied = await binanceAction({
+            symbolId: canonical,
+            timeframeId: intervalId,
+            limit: 300,
+          });
+          if (proxied?.ok && proxied.candles.length > 0) {
+            result = {
+              ok: true,
+              symbol: canonical,
+              providerSymbol: proxied.providerSymbol,
+              timeframe: intervalId,
+              source: "binance",
+              serverTime: proxied.serverTime,
+              candles: proxied.candles,
+            };
+          } else {
+            result = (proxied ?? result) as typeof result;
           }
-          setError(null);
+        }
+        if (cancelled) return;
+        const clean = result.ok ? sanitizeCandles(result.candles) : [];
+        if (clean.length > 0) {
+          applyHistory(clean, "binance", result.providerSymbol);
         } else if (candlesRef.current.length === 0) {
-          erroredRef.current = true;
-          setSource("binance");
-          setStatusSafe("ERROR");
-          setError(
-            "CONNECTION ERROR — historical candles unavailable from Binance. Retrying…",
+          markError(
+            result.error ?? {
+              code: "EMPTY_RESPONSE",
+              message: "Historical candles unavailable from Binance (direct + proxy).",
+            },
           );
         }
       };
@@ -256,14 +336,21 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
       };
 
       void load();
-      attachSocket(sym.binance);
+      attachSocket(resolved.binance);
       /* periodic REST refresh keeps history exact when the WS only carries
          the current candle */
-      const refresh = setInterval(() => void load(), 4 * 60_000);
+      const refresh = setInterval(() => void load(), REFRESH_MS);
+      logPipeline("stream.attached", {
+        symbol: canonical,
+        providerSymbol: resolved.binance,
+        timeframe: intervalId,
+        wsStatus: getBinanceSocketStatus(),
+      });
 
       return () => {
         cancelled = true;
         clearInterval(refresh);
+        if (retryTimer) clearTimeout(retryTimer);
         unsubKline?.();
         unsubStatus?.();
         if (staleTimer) clearInterval(staleTimer);
@@ -274,38 +361,36 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
     const loadTd = async () => {
       try {
         const res = await klinesAction({
-          symbolId: sym.id,
+          symbolId: canonical,
           timeframeId: intervalId,
           limit: 300,
         });
         if (cancelled) return;
         if (!res || res.candles.length === 0) {
           if (candlesRef.current.length === 0) {
-            erroredRef.current = true;
-            setSource(null);
-            setStatusSafe("ERROR");
-            setError(
-              "DATA SOURCE UNAVAILABLE — no Twelve Data key configured or the provider returned no candles for this asset.",
-            );
+            markError({
+              code: "PROVIDER_ERROR",
+              message:
+                "DATA SOURCE UNAVAILABLE — no Twelve Data key configured or the provider returned no candles for this asset.",
+            });
           }
           return;
         }
         const clean = sanitizeCandles(res.candles);
         if (clean.length > 0) {
-          erroredRef.current = false;
-          setCandles(clean);
-          setSource("twelvedata");
-          setUpdatedAt(Date.now());
-          setStatusSafe("LIVE");
-          setError(null);
+          applyHistory(
+            clean,
+            "twelvedata",
+            resolveProviderSymbol(resolved, "twelvedata") ?? resolved.id,
+          );
         }
       } catch {
         if (cancelled) return;
         if (candlesRef.current.length === 0) {
-          erroredRef.current = true;
-          setSource(null);
-          setStatusSafe("ERROR");
-          setError("CONNECTION ERROR — the market-data proxy call failed.");
+          markError({
+            code: "PROVIDER_ERROR",
+            message: "CONNECTION ERROR — the market-data proxy call failed.",
+          });
         }
       }
     };
@@ -315,15 +400,33 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
     return () => {
       cancelled = true;
       clearInterval(poll);
+      if (retryTimer) clearTimeout(retryTimer);
       unsubKline?.();
       unsubStatus?.();
       if (staleTimer) clearInterval(staleTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sym, intervalId, tf.ms, klinesAction]);
+  }, [sym, intervalId, tf.ms, klinesAction, binanceAction, retryKey]);
 
-  return { candles, source, status, error, latencyMs, updatedAt, ageSeconds, freshness, gap, missingCandles, candleCount: candles.length };
+  return {
+    candles,
+    source,
+    providerSymbol,
+    status,
+    error,
+    errorCode,
+    latencyMs,
+    updatedAt,
+    ageSeconds,
+    freshness,
+    gap,
+    missingCandles,
+    candleCount: candles.length,
+    retry,
+  };
 }
+
+export { sanitizeCandles } from "@/lib/market";
 
 function klineToCandle(k: BinanceKlineUpdate): Candle {
   return {

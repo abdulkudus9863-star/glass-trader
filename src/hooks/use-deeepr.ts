@@ -26,7 +26,7 @@ import {
    data, and it returns INSUFFICIENT DATA when the feed is stale or gapped.
    ========================================================================== */
 
-const MTF_PRIORITY = ["1D", "4H", "1H", "15M", "5M", "1M"];
+const MTF_PRIORITY = ["1D", "12H", "4H", "1H", "30M", "15M", "5M", "1M"];
 const CACHE_TTL_MS = 90_000;
 const REFRESH_MS = 90_000;
 
@@ -37,7 +37,7 @@ function canonicalTf(tf: string): string {
 
 /** Map a canonical MTF key back to an app timeframe id. */
 function appTf(canonical: string): TimeframeId {
-  return (canonical === "1M" || canonical === "5M" || canonical === "15M"
+  return (canonical === "1M" || canonical === "5M" || canonical === "15M" || canonical === "30M"
     ? canonical.toLowerCase()
     : canonical) as TimeframeId;
 }
@@ -99,7 +99,8 @@ export function useDeeepr(
         let raw: Candle[] | null = null;
         try {
           if (sym.binance) {
-            raw = await fetchKlines(sym.binance, getTimeframe(tf).ms, 300);
+            const res = await fetchKlines(sym.binance, getTimeframe(tf).ms, 300);
+            raw = res.ok && res.candles.length > 0 ? res.candles : null;
           } else {
             const res = await klinesAction({
               symbolId: sym.id,
