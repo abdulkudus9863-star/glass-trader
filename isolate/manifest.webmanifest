@@ -1,0 +1,17 @@
+{
+  "name": "Ak Analyser — DEEEPR AI 2.0 Engine",
+  "short_name": "Ak Analyser",
+  "description": "Multi-lane AI trading engine: radar pipeline, SMC charting, strategy compiler, AI copilot and Telegram signal dispatch.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050811",
+  "theme_color": "#050811",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
