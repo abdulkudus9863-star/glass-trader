@@ -13,6 +13,7 @@ import {
   Rows2,
   SlidersHorizontal,
   Square,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,6 +71,8 @@ interface TopBarProps {
   onToggleIndicatorDrawer: () => void;
   aiOpen: boolean;
   onToggleAi: () => void;
+  iqOpen: boolean;
+  onToggleIq: () => void;
   strategyCount: number;
 }
 
@@ -92,6 +95,8 @@ export default function TopBar({
   onToggleIndicatorDrawer,
   aiOpen,
   onToggleAi,
+  iqOpen,
+  onToggleIq,
   strategyCount,
 }: TopBarProps) {
   return (
@@ -250,6 +255,28 @@ export default function TopBar({
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">AI analysis bottom drawer</TooltipContent>
+        </Tooltip>
+
+        {/* DEEEPR IQ — institutional liquidity intelligence */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onToggleIq}
+              className={cn(
+                "glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-all hover:bg-white/5",
+                iqOpen
+                  ? "text-[#F4C430] ring-1 ring-[#F4C430]/50"
+                  : "text-slate-300",
+              )}
+            >
+              <Zap className="size-4 text-[#F4C430]" />
+              <span className="hidden lg:inline">DEEEPR IQ</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            DEEEPR IQ — institutional liquidity intelligence
+          </TooltipContent>
         </Tooltip>
 
         {/* SMC AI */}

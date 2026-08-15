@@ -1,12 +1,14 @@
 import { Crown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useKlines } from "@/hooks/use-klines";
+import type { DeeeprIqChartOverlay } from "@/lib/deeepr-iq";
 import { getIndicator } from "@/lib/indicators";
 import { findSymbol, getTimeframe, type TimeframeId } from "@/lib/market";
 import { analyzeSmc } from "@/lib/smc";
 import type { StrategyOverlay } from "@/lib/strategy";
 import { cn } from "@/lib/utils";
 import CustomChart, { type ChartType, type ToolId } from "./CustomChart";
+import { DEFAULT_IQ_OVERLAYS, type IqOverlayPrefs } from "./DeeeprIqPanel";
 import TradingViewWidget, { ensureTvScript, tvState } from "./TradingViewWidget";
 
 export type EngineMode = "auto" | "custom" | "tv";
@@ -66,6 +68,10 @@ interface ChartCanvasProps {
   founderBadge?: boolean;
   /** Compiled strategy overlays to inject onto the canvas. */
   strategies?: StrategyOverlay[];
+  /** Live DEEEPR IQ overlay (real liquidity walls / heatmap / volume profile). */
+  iq?: DeeeprIqChartOverlay | null;
+  /** Per-layer overlay toggles driven by the IQ panel. */
+  overlayPrefs?: IqOverlayPrefs;
 }
 
 export default function ChartCanvas({
@@ -80,6 +86,8 @@ export default function ChartCanvas({
   minHeight = 0,
   founderBadge = false,
   strategies = [],
+  iq = null,
+  overlayPrefs = DEFAULT_IQ_OVERLAYS,
 }: ChartCanvasProps) {
   const klines = useKlines(symbolId, intervalId);
   const { candles, source, status, error, errorCode, providerSymbol, ageSeconds, gap, missingCandles, retry, latencyMs, updatedAt, freshness } = klines;
@@ -160,6 +168,8 @@ export default function ChartCanvas({
           readoutOffset={founderBadge}
           strategies={strategies}
           smc={smc ? smc.overlay : null}
+          iq={iq}
+          overlayPrefs={overlayPrefs}
           feed={{
             status,
             error,

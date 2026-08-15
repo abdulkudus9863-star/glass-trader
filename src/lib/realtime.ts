@@ -50,8 +50,39 @@ export interface BinanceFuturesData {
   timestamp: number;
 }
 
+/** Top-N partial depth snapshot (`@depth20@100ms`). Levels are REAL resting
+    orders; a zero quantity level means it was removed from the book. */
+export interface BinanceDepthUpdate {
+  symbol: string;
+  bids: { price: number; size: number }[]; // sorted desc by price
+  asks: { price: number; size: number }[]; // sorted asc by price
+  receivedAt: number; // epoch ms
+}
+
+/** One aggregated trade print (`@aggTrade`). */
+export interface BinanceAggTrade {
+  symbol: string;
+  price: number;
+  qty: number; // base units
+  /** true = buyer is maker (aggressive SELLER), false = aggressive BUYER. */
+  isBuyerMaker: boolean;
+  time: number; // trade time, epoch ms
+  receivedAt: number;
+}
+
+/** Real Binance USDT-M futures positioning data (public REST, no key). */
+export interface BinanceFuturesData {
+  fundingRate: number | null; // per-8h rate, e.g. 0.0001
+  openInterest: number | null; // contracts outstanding (base units)
+  longShortRatio: number | null; // global long/short account ratio
+  buySellRatio: number | null; // taker buy/sell volume ratio
+  timestamp: number;
+}
+
 type TickerHandler = (ticker: BinanceMiniTicker) => void;
 type KlineHandler = (kline: BinanceKlineUpdate) => void;
+type DepthHandler = (depth: BinanceDepthUpdate) => void;
+type AggTradeHandler = (trade: BinanceAggTrade) => void;
 type StatusHandler = (status: BinanceSocketStatus) => void;
 
 const WS_URL = "wss://stream.binance.com:9443/stream?streams=";
@@ -60,6 +91,8 @@ const WS_URL = "wss://stream.binance.com:9443/stream?streams=";
 
 const tickerHandlers = new Map<string, Set<TickerHandler>>();
 const klineHandlers = new Map<string, Set<KlineHandler>>();
+const depthHandlers = new Map<string, Set<DepthHandler>>();
+const tradeHandlers = new Map<string, Set<AggTradeHandler>>();
 const statusHandlers = new Set<StatusHandler>();
 
 let socket: WebSocket | null = null;
@@ -83,15 +116,26 @@ function setStatus(status: BinanceSocketStatus): void {
   }
 }
 
+function anyHandlers(): boolean {
+  return (
+    tickerHandlers.size > 0 ||
+    klineHandlers.size > 0 ||
+    depthHandlers.size > 0 ||
+    tradeHandlers.size > 0
+  );
+}
+
 function streamNames(): string[] {
   const out: string[] = [];
   for (const s of tickerHandlers.keys()) out.push(`${s.toLowerCase()}@miniTicker`);
   for (const s of klineHandlers.keys()) out.push(`${s.toLowerCase()}@kline`);
+  for (const s of depthHandlers.keys()) out.push(`${s.toLowerCase()}@depth20@100ms`);
+  for (const s of tradeHandlers.keys()) out.push(`${s.toLowerCase()}@aggTrade`);
   return out;
 }
 
 function connect(): void {
-  if (reconnectTimer || (tickerHandlers.size === 0 && klineHandlers.size === 0)) return;
+  if (reconnectTimer || !anyHandlers()) return;
   const names = streamNames();
 
   if (
@@ -153,7 +197,16 @@ function connect(): void {
           };
         };
       };
-      const raw = msg.data;
+      const raw = msg.data as
+        | (typeof msg.data & {
+            b?: string[][];
+            a?: string[][];
+            p?: string;
+            q?: string;
+            m?: boolean;
+            T?: number;
+          })
+        | undefined;
       const stream = msg.stream ?? "";
       const symbol = raw?.s?.toUpperCase() ?? "";
       if (!raw || !symbol) return;
@@ -220,6 +273,63 @@ function connect(): void {
             // ignore
           }
         }
+      } else if (stream.endsWith("@depth20@100ms") && Array.isArray(raw.b) && Array.isArray(raw.a)) {
+        /* partial-book depth — each push carries the full top-20 state.
+           Every level is parsed strictly; NaN or non-positive prices are
+           dropped, zero-size levels mean removal (kept as a 0 level so
+           wall tracking can observe disappearance). */
+        const parseSide = (rows: string[][]): { price: number; size: number }[] => {
+          const out: { price: number; size: number }[] = [];
+          for (const row of rows) {
+            if (!Array.isArray(row) || row.length < 2) continue;
+            const price = Number(row[0]);
+            const size = Number(row[1]);
+            if (!Number.isFinite(price) || !Number.isFinite(size) || price <= 0) continue;
+            out.push({ price, size });
+          }
+          return out;
+        };
+        const bids = parseSide(raw.b);
+        const asks = parseSide(raw.a);
+        if (bids.length === 0 && asks.length === 0) return;
+        bids.sort((x, y) => y.price - x.price);
+        asks.sort((x, y) => x.price - y.price);
+        const depth: BinanceDepthUpdate = {
+          symbol,
+          bids,
+          asks,
+          receivedAt: Date.now(),
+        };
+        const set = depthHandlers.get(symbol);
+        if (!set) return;
+        for (const handler of set) {
+          try {
+            handler(depth);
+          } catch {
+            // ignore
+          }
+        }
+      } else if (stream.endsWith("@aggTrade") && raw.p != null) {
+        const price = Number(raw.p);
+        const qty = Number(raw.q);
+        if (!Number.isFinite(price) || !Number.isFinite(qty) || price <= 0 || qty <= 0) return;
+        const trade: BinanceAggTrade = {
+          symbol,
+          price,
+          qty,
+          isBuyerMaker: raw.m === true,
+          time: Number(raw.T) || Date.now(),
+          receivedAt: Date.now(),
+        };
+        const set = tradeHandlers.get(symbol);
+        if (!set) return;
+        for (const handler of set) {
+          try {
+            handler(trade);
+          } catch {
+            // ignore
+          }
+        }
       }
     } catch {
       // ignore malformed frames
@@ -233,7 +343,7 @@ function connect(): void {
   socket.onclose = () => {
     socket = null;
     socketStreams = [];
-    if (intentionalClose || (tickerHandlers.size === 0 && klineHandlers.size === 0)) {
+    if (intentionalClose || !anyHandlers()) {
       setStatus("idle");
       return;
     }
@@ -295,7 +405,7 @@ function ensureWatchdog(): void {
 }
 
 function stopWatchdogIfIdle(): void {
-  if (tickerHandlers.size === 0 && klineHandlers.size === 0 && watchdog) {
+  if (!anyHandlers() && watchdog) {
     clearInterval(watchdog);
     watchdog = null;
   }
@@ -323,7 +433,7 @@ export function subscribeBinanceTicker(
     if (!current) return;
     current.delete(handler);
     if (current.size === 0) tickerHandlers.delete(symbol);
-    if (tickerHandlers.size === 0 && klineHandlers.size === 0) tearDownSocket();
+    if (!anyHandlers()) tearDownSocket();
     stopWatchdogIfIdle();
   };
 }
@@ -349,7 +459,59 @@ export function subscribeBinanceKlines(
     if (!current) return;
     current.delete(handler);
     if (current.size === 0) klineHandlers.delete(symbol);
-    if (tickerHandlers.size === 0 && klineHandlers.size === 0) tearDownSocket();
+    if (!anyHandlers()) tearDownSocket();
+    stopWatchdogIfIdle();
+  };
+}
+
+/**
+ * Subscribe to the real-time top-20 order book (`@depth20@100ms`) for one
+ * Binance symbol. Every update is a full top-20 snapshot of real resting
+ * liquidity — used by the DEEEPR IQ LiquidityEngine.
+ */
+export function subscribeBinanceDepth(
+  binanceSymbol: string,
+  handler: DepthHandler,
+): () => void {
+  const symbol = binanceSymbol.toUpperCase();
+  const set = depthHandlers.get(symbol) ?? new Set<DepthHandler>();
+  set.add(handler);
+  depthHandlers.set(symbol, set);
+  ensureWatchdog();
+  connect();
+
+  return () => {
+    const current = depthHandlers.get(symbol);
+    if (!current) return;
+    current.delete(handler);
+    if (current.size === 0) depthHandlers.delete(symbol);
+    if (!anyHandlers()) tearDownSocket();
+    stopWatchdogIfIdle();
+  };
+}
+
+/**
+ * Subscribe to the real-time aggregated trade stream (`@aggTrade`) for one
+ * Binance symbol. Used by the DEEEPR IQ OrderFlowEngine to split real prints
+ * into aggressive buy/sell volume.
+ */
+export function subscribeBinanceAggTrades(
+  binanceSymbol: string,
+  handler: AggTradeHandler,
+): () => void {
+  const symbol = binanceSymbol.toUpperCase();
+  const set = tradeHandlers.get(symbol) ?? new Set<AggTradeHandler>();
+  set.add(handler);
+  tradeHandlers.set(symbol, set);
+  ensureWatchdog();
+  connect();
+
+  return () => {
+    const current = tradeHandlers.get(symbol);
+    if (!current) return;
+    current.delete(handler);
+    if (current.size === 0) tradeHandlers.delete(symbol);
+    if (!anyHandlers()) tearDownSocket();
     stopWatchdogIfIdle();
   };
 }

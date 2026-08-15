@@ -16,6 +16,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useKlines } from "@/hooks/use-klines";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useDeeepr } from "@/hooks/use-deeepr";
+import { useDeeeprIq } from "@/hooks/use-deeepr-iq";
+import { toChartOverlay, type DeeeprIqChartOverlay } from "@/lib/deeepr-iq";
 import { findSymbol, type TimeframeId } from "@/lib/market";
 import {
   overlayFromSpec,
@@ -30,6 +32,10 @@ import MorePanel from "@/components/workspace/MorePanel";
 import Radar from "@/components/workspace/Radar";
 import SmcAnalysisDrawer from "@/components/workspace/SmcAnalysisDrawer";
 import StrategyCompiler from "@/components/workspace/StrategyCompiler";
+import DeeeprIqPanel, {
+  DEFAULT_IQ_OVERLAYS,
+  type IqOverlayPrefs,
+} from "@/components/chart/DeeeprIqPanel";
 
 interface PaneState {
   id: string;
@@ -68,6 +74,8 @@ interface PaneCardProps {
   chartMinHeight?: number;
   founderBadge?: boolean;
   strategies: StrategyOverlay[];
+  iq?: DeeeprIqChartOverlay | null;
+  overlayPrefs?: IqOverlayPrefs;
   onActivate: () => void;
   onToolConsumed: () => void;
 }
@@ -82,6 +90,8 @@ function PaneCard({
   chartMinHeight = 0,
   founderBadge = false,
   strategies,
+  iq = null,
+  overlayPrefs = DEFAULT_IQ_OVERLAYS,
   onActivate,
   onToolConsumed,
 }: PaneCardProps) {
@@ -152,6 +162,8 @@ function PaneCard({
           minHeight={chartMinHeight}
           founderBadge={founderBadge}
           strategies={strategies}
+          iq={iq}
+          overlayPrefs={overlayPrefs}
         />
       </div>
     </div>
@@ -166,6 +178,8 @@ export default function Dashboard() {
   const [tab, setTab] = useState<AppTab>("radar");
   const [smcOpen, setSmcOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [iqOpen, setIqOpen] = useState(false);
+  const [iqOverlays, setIqOverlays] = useState<IqOverlayPrefs>(DEFAULT_IQ_OVERLAYS);
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
   const [layout, setLayout] = useState<LayoutId>("1x1");
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
@@ -198,6 +212,20 @@ export default function Dashboard() {
     price: activeTicker?.price ?? null,
     change24h: activeTicker?.change24h ?? null,
   });
+
+  /* DEEEPR IQ — real Binance depth + trade streams scored by the same
+     deterministic engine. Only the active pane carries the live overlay. */
+  const iqHook = useDeeeprIq(
+    activePane.symbolId,
+    activePane.intervalId,
+    activeLive,
+    deeepr.analysis,
+    { price: activeTicker?.price ?? null },
+  );
+  const iqOverlay = useMemo<DeeeprIqChartOverlay | null>(
+    () => toChartOverlay(iqHook.liquidity, iqHook.volumeProfile),
+    [iqHook.liquidity, iqHook.volumeProfile],
+  );
 
   /* Convert a confirmed DEEEPR setup into the same overlay the strategy
      compiler uses, so entry/SL/TP render on the canvas with real levels. */
@@ -309,6 +337,8 @@ export default function Dashboard() {
           onToggleIndicatorDrawer={() => setIndicatorDrawerOpen((o) => !o)}
           aiOpen={aiOpen}
           onToggleAi={() => setAiOpen((o) => !o)}
+          iqOpen={iqOpen}
+          onToggleIq={() => setIqOpen((o) => !o)}
           strategyCount={strategies.length}
         />
       )}
@@ -395,6 +425,8 @@ export default function Dashboard() {
                     ? [...strategies, deeeprOverlay]
                     : strategies
                 }
+                iq={pane.id === activeId ? iqOverlay : null}
+                overlayPrefs={iqOverlays}
                 onActivate={() => setActiveId(pane.id)}
                 onToolConsumed={() => setTool(null)}
               />
@@ -431,6 +463,19 @@ export default function Dashboard() {
             deeepr={deeepr}
             price={activeTicker?.price ?? null}
             change24h={activeTicker?.change24h ?? null}
+          />
+          <DeeeprIqPanel
+            open={iqOpen}
+            onOpenChange={setIqOpen}
+            symbolId={activePane.symbolId}
+            intervalId={activePane.intervalId}
+            live={activeLive}
+            deeepr={deeepr}
+            iqHook={iqHook}
+            price={activeTicker?.price ?? null}
+            change24h={activeTicker?.change24h ?? null}
+            overlays={iqOverlays}
+            onOverlaysChange={setIqOverlays}
           />
         </div>
 

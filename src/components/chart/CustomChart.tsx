@@ -22,9 +22,14 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { KlineStatus, DataFreshness } from "@/hooks/use-klines";
+import type { DeeeprIqChartOverlay } from "@/lib/deeepr-iq";
 import { getIndicator } from "@/lib/indicators";
 import { type SmcOverlay } from "@/lib/smc";
 import type { StrategyOverlay } from "@/lib/strategy";
+import {
+  DEFAULT_IQ_OVERLAYS,
+  type IqOverlayPrefs,
+} from "./DeeeprIqPanel";
 import {
   type Candle,
   type MarketError,
@@ -122,6 +127,10 @@ interface CustomChartProps {
   strategies?: StrategyOverlay[];
   /** Live SMC overlays (watch zones, whale walls, swing S/R) for this symbol. */
   smc?: SmcOverlay | null;
+  /** Live DEEEPR IQ overlays (real liquidity walls, heatmap, volume profile). */
+  iq?: DeeeprIqChartOverlay | null;
+  /** Per-layer ON/OFF controls (IQ panel drives these). */
+  overlayPrefs?: IqOverlayPrefs;
   /** Live feed state — drives LOADING / ERROR / STALE / LIVE overlays. */
   feed?: ChartFeed | null;
 }
@@ -338,6 +347,8 @@ export default function CustomChart({
   readoutOffset = false,
   strategies = [],
   smc = null,
+  iq = null,
+  overlayPrefs = DEFAULT_IQ_OVERLAYS,
   feed = null,
 }: CustomChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -352,6 +363,9 @@ export default function CustomChart({
   const strategyLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
   const smcRef = useRef<SmcOverlay | null>(null);
   const smcPriceLinesRef = useRef<IPriceLine[]>([]);
+  const iqRef = useRef<DeeeprIqChartOverlay | null>(null);
+  const iqPriceLinesRef = useRef<IPriceLine[]>([]);
+  const prefsRef = useRef<IqOverlayPrefs>(overlayPrefs);
   const symbolIdRef = useRef(symbolId);
 
   const candlesRef = useRef<Candle[]>(candles);
@@ -375,6 +389,8 @@ export default function CustomChart({
   onToolConsumedRef.current = onToolConsumed;
   strategiesRef.current = strategies;
   smcRef.current = smc;
+  iqRef.current = iq;
+  prefsRef.current = overlayPrefs;
   symbolIdRef.current = symbolId;
 
   const [drawings, setDrawings] = useState<Drawing[]>([]);
@@ -501,6 +517,7 @@ export default function CustomChart({
     }
     strategyLinesRef.current.clear();
 
+    if (!prefsRef.current.tradeLevels) return;
     for (const st of strategiesRef.current) {
       if (!st.visible || st.bias === "WAIT") continue;
       if (st.asset !== symbolIdRef.current) continue;
@@ -538,6 +555,7 @@ export default function CustomChart({
     for (const pl of smcPriceLinesRef.current) main.removePriceLine(pl);
     smcPriceLinesRef.current = [];
 
+    if (!prefsRef.current.smc) return;
     const overlay = smcRef.current;
     if (!overlay) return;
 
@@ -612,6 +630,86 @@ export default function CustomChart({
     };
     badge("ema9", "EMA 9", "#F4C430");
     badge("ema21", "EMA 21", "#3b82f6");
+  }, []);
+
+  /* DEEEPR IQ overlays — REAL order-book walls, liquidity heatmap and
+     volume-profile levels. Every line carries the observed price and is
+     labelled with the observed size; nothing is ever fabricated here. */
+  const syncIqVisuals = useCallback(() => {
+    const chart = chartRef.current;
+    const main = mainSeriesRef.current;
+    if (!chart || !main) return;
+    for (const pl of iqPriceLinesRef.current) main.removePriceLine(pl);
+    iqPriceLinesRef.current = [];
+
+    const overlay = iqRef.current;
+    const prefs = prefsRef.current;
+    if (!overlay) return;
+
+    /* liquidity walls — solid, colour-coded, sized + strength in the label */
+    if (prefs.liquidity) {
+      for (const w of overlay.walls) {
+        if (w.status === "REMOVED") continue;
+        const bullish = w.side === "bid";
+        const label = `${bullish ? "🐋 BUY" : "🐋 SELL"} WALL · $${formatCompact(w.notional)} · ${w.strength}`;
+        iqPriceLinesRef.current.push(
+          main.createPriceLine({
+            price: w.price,
+            color: bullish ? "rgba(0,230,118,0.85)" : "rgba(255,23,68,0.85)",
+            lineWidth: 1,
+            lineStyle: LineStyle.Solid,
+            title: label,
+            axisLabelVisible: true,
+            axisLabelColor: bullish ? "#00b359" : "#c9143d",
+            axisLabelTextColor: "#ffffff",
+          }),
+        );
+      }
+    }
+
+    /* liquidity heatmap — translucent bands whose width/alpha encode the
+       observed depth intensity per price level (opacity from the IQ panel) */
+    if (prefs.heatmap) {
+      for (const h of overlay.heatmap) {
+        const width = (1 + Math.round(h.intensity * 3)) as 1 | 2 | 3 | 4;
+        const alpha = 0.04 + h.intensity * 0.12;
+        iqPriceLinesRef.current.push(
+          main.createPriceLine({
+            price: h.price,
+            color:
+              h.side === "bid"
+                ? `rgba(0,230,118,${alpha.toFixed(3)})`
+                : `rgba(255,23,68,${alpha.toFixed(3)})`,
+            lineWidth: width,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: false,
+          }),
+        );
+      }
+    }
+
+    /* volume profile — POC / VAH / VAL + HVN/LVN from real candle volume */
+    if (prefs.volumeProfile) {
+      for (const lvl of overlay.volumeProfile) {
+        const isPoc = lvl.kind === "POC";
+        iqPriceLinesRef.current.push(
+          main.createPriceLine({
+            price: lvl.price,
+            color: isPoc
+              ? "rgba(244,196,48,0.9)"
+              : lvl.kind === "VAH" || lvl.kind === "VAL"
+                ? "rgba(0,240,255,0.7)"
+                : "rgba(148,163,184,0.28)",
+            lineWidth: isPoc ? 2 : (lvl.kind === "HVN" || lvl.kind === "LVN" ? 3 : 1),
+            lineStyle: isPoc ? LineStyle.Solid : LineStyle.Dashed,
+            title: isPoc || lvl.kind === "VAH" || lvl.kind === "VAL" ? lvl.kind : undefined,
+            axisLabelVisible: isPoc || lvl.kind === "VAH" || lvl.kind === "VAL",
+            axisLabelColor: isPoc ? "#F4C430" : "#00F0FF",
+            axisLabelTextColor: "#0a0e1a",
+          }),
+        );
+      }
+    }
   }, []);
 
   const computeRects = useCallback(() => {
@@ -732,6 +830,10 @@ export default function CustomChart({
       mainSeriesRef.current?.removePriceLine(pl);
     }
     smcPriceLinesRef.current = [];
+    for (const pl of iqPriceLinesRef.current) {
+      mainSeriesRef.current?.removePriceLine(pl);
+    }
+    iqPriceLinesRef.current = [];
     pendingRef.current = null;
 
     const c = candlesRef.current;
@@ -981,6 +1083,7 @@ export default function CustomChart({
       priceLinesRef.current.clear();
       strategyLinesRef.current.clear();
       smcPriceLinesRef.current = [];
+      iqPriceLinesRef.current = [];
       previewSeriesRef.current = null;
       markersPluginRef.current = null;
       pendingRef.current = null;
@@ -1028,13 +1131,18 @@ export default function CustomChart({
     syncStrategyVisuals();
     syncMarkers();
     computeRects();
-  }, [strategies, syncStrategyVisuals, syncMarkers, computeRects]);
+  }, [strategies, overlayPrefs, syncStrategyVisuals, syncMarkers, computeRects]);
 
   /* live SMC overlays (watch zones / whale walls / swing S/R / EMA badges) */
   useEffect(() => {
     syncSmcVisuals();
     computeRects();
-  }, [smc, indicatorIds, candles, syncSmcVisuals, computeRects]);
+  }, [smc, indicatorIds, candles, overlayPrefs, syncSmcVisuals, computeRects]);
+
+  /* live DEEEPR IQ overlays (walls / heatmap / volume profile) */
+  useEffect(() => {
+    syncIqVisuals();
+  }, [iq, overlayPrefs, syncIqVisuals]);
 
   /* ------------------------------- render -------------------------------- */
 
