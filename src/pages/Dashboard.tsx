@@ -1,8 +1,8 @@
 import { AnimatePresence } from "framer-motion";
 import { Eye, EyeOff, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import AiAnalysisDrawer from "@/components/chart/AiAnalysisDrawer";
 import ChartCanvas, { type EngineMode } from "@/components/chart/ChartCanvas";
+import TradeIntelligence from "@/components/chart/TradeIntelligence";
 import { type ChartType, type ToolId } from "@/components/chart/CustomChart";
 import DrawingToolbar from "@/components/chart/DrawingToolbar";
 import IndicatorDrawer from "@/components/chart/IndicatorDrawer";
@@ -13,6 +13,9 @@ import TopBar, { type LayoutId } from "@/components/layout/TopBar";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { useTokens } from "@/hooks/use-tokens";
 import { useAuth } from "@/hooks/use-auth";
+import { useKlines } from "@/hooks/use-klines";
+import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
+import { useDeeepr } from "@/hooks/use-deeepr";
 import { findSymbol, type TimeframeId } from "@/lib/market";
 import {
   overlayFromSpec,
@@ -185,6 +188,43 @@ export default function Dashboard() {
     layout === "1x1" ? panes.slice(0, 1) : layout === "2x1" ? panes.slice(0, 2) : panes;
   const activePane = panes.find((p) => p.id === activeId) ?? panes[0];
 
+  /* DEEEPR Trade Intelligence — one analysis shared by the panel and the
+     active chart pane's overlay. The primary candles come from the same
+     useKlines stream the chart renders (single source of truth). */
+  const activeLive = useKlines(activePane.symbolId, activePane.intervalId);
+  const activeTickers = useMarketSnapshot([activePane.symbolId]);
+  const activeTicker = activeTickers[activePane.symbolId];
+  const deeepr = useDeeepr(activePane.symbolId, activePane.intervalId, activeLive, {
+    price: activeTicker?.price ?? null,
+    change24h: activeTicker?.change24h ?? null,
+  });
+
+  /* Convert a confirmed DEEEPR setup into the same overlay the strategy
+     compiler uses, so entry/SL/TP render on the canvas with real levels. */
+  const deeeprOverlay = useMemo<StrategyOverlay | null>(() => {
+    const a = deeepr.analysis;
+    if (!a) return null;
+    const actionable =
+      a.decision === "STRONG BUY" ||
+      a.decision === "BUY" ||
+      a.decision === "STRONG SELL" ||
+      a.decision === "SELL";
+    if (!actionable || a.direction === "NEUTRAL") return null;
+    if (a.entry.zone_low <= 0 || a.risk.stop_loss <= 0) return null;
+    return {
+      /* stable id — the levels themselves update live, but the overlay
+         identity must not churn on every candle tick */
+      id: `deeepr-${a.symbol}-${a.timeframe}`,
+      name: "DEEEPR Setup",
+      asset: a.symbol,
+      bias: a.direction,
+      entryZone: [a.entry.zone_low, a.entry.zone_high],
+      stopLoss: a.risk.stop_loss,
+      takeProfits: [a.targets.tp1, a.targets.tp2],
+      visible: true,
+    };
+  }, [deeepr.analysis]);
+
   /* keep the active pane within the visible layout */
   useEffect(() => {
     if (!visiblePanes.some((p) => p.id === activeId)) {
@@ -350,7 +390,11 @@ export default function Dashboard() {
                 engineMode={engineMode}
                 chartMinHeight={layout === "1x1" ? 550 : 0}
                 founderBadge={pane.id === activeId && isFounder}
-                strategies={strategies}
+                strategies={
+                  pane.id === activeId && deeeprOverlay
+                    ? [...strategies, deeeprOverlay]
+                    : strategies
+                }
                 onActivate={() => setActiveId(pane.id)}
                 onToolConsumed={() => setTool(null)}
               />
@@ -378,11 +422,15 @@ export default function Dashboard() {
             indicators={indicators}
             onToggle={toggleIndicator}
           />
-          <AiAnalysisDrawer
+          <TradeIntelligence
             open={aiOpen}
             onOpenChange={setAiOpen}
             symbolId={activePane.symbolId}
             intervalId={activePane.intervalId}
+            live={activeLive}
+            deeepr={deeepr}
+            price={activeTicker?.price ?? null}
+            change24h={activeTicker?.change24h ?? null}
           />
         </div>
 
