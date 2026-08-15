@@ -59,6 +59,12 @@ export default function TradingViewWidget({
 }: TradingViewWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  /* Primary pane gets the canonical TradingView container id; multi-pane
+     layouts need a unique id per widget so the panes never fight over the
+     same DOM node. */
+  const containerId =
+    paneId === "p1" ? "tradingview_canvas_container" : `tv-widget-${paneId}`;
+
   useEffect(() => {
     if (!window.TradingView) return;
     const el = containerRef.current;
@@ -72,10 +78,10 @@ export default function TradingViewWidget({
       theme: "dark",
       style,
       locale: "en",
-      toolbar_bg: "#131722",
+      toolbar_bg: "#070B14",
       enable_publishing: false,
       allow_symbol_change: true,
-      container_id: el.id,
+      container_id: containerId,
       studies,
       hide_side_toolbar: false,
       withdateranges: true,
@@ -84,7 +90,7 @@ export default function TradingViewWidget({
       hotlist: false,
       calendar: false,
     });
-  }, [paneId, tvSymbol, interval, style, studies]);
+  }, [containerId, tvSymbol, interval, style, studies]);
 
   return (
     /* Explicit sizing on the wrapper and iframe parent keeps the widget from
@@ -103,7 +109,7 @@ export default function TradingViewWidget({
         style={{ height: "100%", width: "100%", overflow: "hidden" }}
       >
         <div
-          id={`tv-widget-${paneId}`}
+          id={containerId}
           ref={containerRef}
           className="h-full w-full"
           style={{ height: "100%", width: "100%" }}

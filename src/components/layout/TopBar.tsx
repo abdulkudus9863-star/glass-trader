@@ -171,23 +171,24 @@ export default function TopBar({
               value={engineMode}
               onValueChange={(v) => onEngineModeChange(v as EngineMode)}
             >
+              <DropdownMenuRadioItem value="tv">
+                TradingView widget
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  default
+                </span>
+              </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="auto">
                 Auto
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  recommended
-                </span>
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="custom">
                 Custom canvas
               </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="tv">
-                TradingView widget
-              </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
             <p className="px-2 pb-1.5 text-[10px] leading-4 text-muted-foreground">
-              Strategy overlays and SMC drawings render on the custom canvas —
-              the widget is a read-only fallback.
+              The official TradingView engine is the default. Switch to the
+              custom canvas for SMC overlays, drawing tools, and strategy
+              injections.
             </p>
           </DropdownMenuContent>
         </DropdownMenu>

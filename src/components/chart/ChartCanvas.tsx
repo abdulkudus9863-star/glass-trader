@@ -29,7 +29,7 @@ function tvSymbolFor(id: string): string {
     case "USDJPY":
       return "OANDA:USDJPY";
     case "XAUUSD":
-      return "FOREXCOM:XAUUSD";
+      return "OANDA:XAUUSD";
     case "XAGUSD":
       return "FOREXCOM:XAGUSD";
     case "SPX500":
@@ -103,7 +103,9 @@ export default function ChartCanvas({
     });
   }, [candles, symbolId, intervalId, sym.decimals, sym.name]);
 
-  /* Bootstrap the shared TradingView script once when the widget may be used. */
+  /* Bootstrap the shared TradingView script once when the widget may be used.
+     Until it loads (or if it fails), the custom canvas keeps the pane from
+     ever going blank — the official widget takes over as soon as it's ready. */
   useEffect(() => {
     if (engineMode === "custom") return;
     let cancelled = false;
@@ -125,11 +127,16 @@ export default function ChartCanvas({
   }, [engineMode]);
 
   const showWidget = tvReady;
+  /* Default widget studies (SMA + RSI always on) plus any indicator the user
+     toggles that maps to a TradingView basic study. */
   const studies = useMemo(() => {
-    const list = indicators
-      .map((id) => getIndicator(id)?.tvStudy)
-      .filter((s): s is string => Boolean(s));
-    if (chartType === "heikin") list.push("HeikenAshi@tv-basicstudies");
+    const list = ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"];
+    for (const id of indicators) {
+      const s = getIndicator(id)?.tvStudy;
+      if (s && !list.includes(s)) list.push(s);
+    }
+    if (chartType === "heikin" && !list.includes("HeikenAshi@tv-basicstudies"))
+      list.push("HeikenAshi@tv-basicstudies");
     return list;
   }, [indicators, chartType]);
 

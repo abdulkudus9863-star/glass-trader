@@ -168,7 +168,7 @@ export default function Dashboard() {
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
   const [activeId, setActiveId] = useState("p1");
   const [rightOpen, setRightOpen] = useState(true);
-  const [engineMode, setEngineMode] = useState<EngineMode>("auto");
+  const [engineMode, setEngineMode] = useState<EngineMode>("tv");
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [tool, setTool] = useState<ToolId>(null);
   const [indicatorModalOpen, setIndicatorModalOpen] = useState(false);
@@ -222,7 +222,7 @@ export default function Dashboard() {
     if (spec.asset !== activePane.symbolId) {
       updateActivePane({ symbolId: spec.asset });
     }
-    setEngineMode("custom"); // overlays render on the custom canvas
+    setEngineMode("custom"); // strategy overlays render on the custom canvas
     setTab("charts");
   };
 
