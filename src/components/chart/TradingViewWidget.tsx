@@ -1,123 +1,99 @@
-import { useEffect, useRef } from "react";
+import React, { useEffect, useRef } from 'react';
 
 declare global {
   interface Window {
-    TradingView?: {
-      widget: new (options: Record<string, unknown>) => unknown;
-    };
+    TradingView?: any;
   }
-}
-
-/* Shared script loader — only ever inject tv.js once, even across panes. */
-export let tvState: "none" | "loading" | "loaded" | "failed" = "none";
-const tvReadyListeners = new Set<() => void>();
-
-export function ensureTvScript(onReady: () => void): () => void {
-  if (tvState === "loaded") {
-    onReady();
-    return () => {};
-  }
-  if (tvState === "failed") return () => {};
-  const ok = () => {
-    tvState = "loaded";
-    tvReadyListeners.forEach((l) => l());
-  };
-  tvReadyListeners.add(ok);
-  if (tvState === "none") {
-    tvState = "loading";
-    const script = document.createElement("script");
-    script.src = "https://s3.tradingview.com/tv.js";
-    script.async = true;
-    script.onload = ok;
-    script.onerror = () => {
-      tvState = "failed";
-    };
-    document.head.appendChild(script);
-  }
-  return () => {
-    tvReadyListeners.delete(ok);
-  };
 }
 
 interface TradingViewWidgetProps {
-  paneId: string;
-  tvSymbol: string;
-  interval: string; // TV interval code, e.g. "60", "D"
-  style: number; // 0 = bar, 1 = candles, 2 = line
-  /** TradingView studies to overlay. Defaults to SMA + RSI. */
-  studies?: string[];
-  /** Minimum pixel height of the widget area. Pass 0 to disable. */
-  minHeight?: number;
+  /** TradingView symbol, e.g. "BTCUSDT" or "BINANCE:BTCUSDT" */
+  symbol?: string;
+  /** TradingView interval code, e.g. "1", "5", "15", "60", "D", "W" */
+  timeframe?: string;
 }
 
-const DEFAULT_STUDIES = ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"];
-
-export default function TradingViewWidget({
-  paneId,
-  tvSymbol,
-  interval,
-  style,
-  studies = DEFAULT_STUDIES,
-  minHeight = 0,
-}: TradingViewWidgetProps) {
+/**
+ * Official TradingView Advanced Charting Widget.
+ * Self-contained: loads tv.js once, cleans up on unmount, re-inits on prop change.
+ * Drawing toolbar and side indicators are visible by default.
+ */
+export const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
+  symbol = 'BTCUSDT',
+  timeframe = '15',
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  /* Primary pane gets the canonical TradingView container id; multi-pane
-     layouts need a unique id per widget so the panes never fight over the
-     same DOM node. */
-  const containerId =
-    paneId === "p1" ? "tradingview_canvas_container" : `tv-widget-${paneId}`;
-
   useEffect(() => {
-    if (!window.TradingView) return;
-    const el = containerRef.current;
-    if (!el) return;
-    el.innerHTML = "";
-    new window.TradingView.widget({
-      autosize: true,
-      symbol: tvSymbol,
-      interval,
-      timezone: "Etc/UTC",
-      theme: "dark",
-      style,
-      locale: "en",
-      toolbar_bg: "#070B14",
-      enable_publishing: false,
-      allow_symbol_change: true,
-      container_id: containerId,
-      studies,
-      hide_side_toolbar: false,
-      withdateranges: true,
-      save_image: false,
-      details: false,
-      hotlist: false,
-      calendar: false,
-    });
-  }, [containerId, tvSymbol, interval, style, studies]);
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Clear previous iframe elements to avoid duplicate/freezing charts
+    container.innerHTML = '';
+
+    // Create unique ID for the chart container div
+    const chartId = `tv_chart_${Math.random().toString(36).substring(7)}`;
+    const widgetDiv = document.createElement('div');
+    widgetDiv.id = chartId;
+    widgetDiv.style.width = '100%';
+    widgetDiv.style.height = '100%';
+    container.appendChild(widgetDiv);
+
+    // Format symbol (defaults to Binance feed if prefix is missing)
+    const formattedSymbol = symbol.includes(':') ? symbol : `BINANCE:${symbol}`;
+
+    // Initialize the TradingView Widget instance
+    const initWidget = () => {
+      if (window.TradingView && widgetDiv) {
+        new window.TradingView.widget({
+          autosize: true,
+          symbol: formattedSymbol,
+          interval: timeframe,
+          timezone: 'Etc/UTC',
+          theme: 'dark',
+          style: '1', // 1 = Candlestick chart
+          locale: 'en',
+          toolbar_bg: '#131722',
+          enable_publishing: false,
+          allow_symbol_change: true,
+          hide_side_toolbar: false, // Keeps drawing tools visible on the left
+          container_id: chartId,
+        });
+      }
+    };
+
+    // Load TradingView script if not already present on window
+    if (window.TradingView) {
+      initWidget();
+    } else {
+      const existingScript = document.getElementById('tradingview-tv-js');
+      if (!existingScript) {
+        const script = document.createElement('script');
+        script.id = 'tradingview-tv-js';
+        script.src = 'https://s3.tradingview.com/tv.js';
+        script.async = true;
+        script.onload = initWidget;
+        document.head.appendChild(script);
+      } else {
+        existingScript.addEventListener('load', initWidget);
+      }
+    }
+
+    // Cleanup on component unmount or prop change
+    return () => {
+      container.innerHTML = '';
+    };
+  }, [symbol, timeframe]);
 
   return (
-    /* Explicit sizing on the wrapper and iframe parent keeps the widget from
-       collapsing or clipping its volume panel and time axis on small screens. */
-    <div
-      className="relative h-full w-full overflow-hidden"
-      style={{
-        height: "100%",
-        width: "100%",
-        overflow: "hidden",
-        minHeight: minHeight > 0 ? minHeight : undefined,
-      }}
-    >
+    <div className="flex flex-col h-full w-full bg-[#131722] text-white">
+      {/* Chart Wrapper Container */}
       <div
-        className="h-full w-full overflow-hidden"
-        style={{ height: "100%", width: "100%", overflow: "hidden" }}
-      >
-        <div
-          id={containerId}
-          ref={containerRef}
-          className="h-full w-full"
-          style={{ height: "100%", width: "100%" }}
-        />
-      </div>
+        ref={containerRef}
+        className="w-full h-full min-h-[500px] flex-1 relative overflow-hidden"
+      />
     </div>
   );
-}
+};
+
+export default TradingViewWidget;

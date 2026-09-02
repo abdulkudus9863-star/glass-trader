@@ -176,11 +176,8 @@ function HeroChartCard() {
       </div>
       <div className="h-[300px] overflow-hidden rounded-xl bg-[#050811]/90 p-1 ring-1 ring-white/5">
         <TradingViewWidget
-          paneId="hero"
-          tvSymbol="BINANCE:BTCUSDT"
-          interval="15"
-          style={1}
-          minHeight={0}
+          symbol="BINANCE:BTCUSDT"
+          timeframe="15"
         />
       </div>
       <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-muted-foreground">

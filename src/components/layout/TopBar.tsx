@@ -53,7 +53,6 @@ interface TopBarProps {
   intervalId: TimeframeId;
   onIntervalChange: (id: TimeframeId) => void;
   chartType: ChartType;
-  onChartTypeChange: (t: ChartType) => void;
   layout: LayoutId;
   onLayoutChange: (l: LayoutId) => void;
   rightOpen: boolean;
@@ -72,7 +71,6 @@ export default function TopBar({
   intervalId,
   onIntervalChange,
   chartType,
-  onChartTypeChange,
   layout,
   onLayoutChange,
   rightOpen,
@@ -113,32 +111,20 @@ export default function TopBar({
               type="button"
               className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
             >
-              {(() => {
-                const t = CHART_TYPES.find((c) => c.id === chartType);
-                const Icon = t?.icon ?? CandlestickChart;
-                return <Icon className="size-4 text-[#F4C430]" />;
-              })()}
-              <span className="hidden sm:inline">
-                {CHART_TYPES.find((c) => c.id === chartType)?.label}
-              </span>
+              <CandlestickChart className="size-4 text-[#F4C430]" />
+              <span className="hidden sm:inline">Candles</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="glass-strong w-44">
             <DropdownMenuLabel>Chart type</DropdownMenuLabel>
-            {CHART_TYPES.map((t) => {
-              const Icon = t.icon;
-              return (
-                <DropdownMenuItem
-                  key={t.id}
-                  onSelect={() => onChartTypeChange(t.id)}
-                  className="gap-2.5"
-                >
-                  <Icon className="size-4 text-slate-400" />
-                  <span className="flex-1">{t.label}</span>
-                  {chartType === t.id && <Check className="size-4 text-[#F4C430]" />}
-                </DropdownMenuItem>
-              );
-            })}
+            <DropdownMenuItem className="gap-2.5" disabled>
+              <CandlestickChart className="size-4 text-[#F4C430]" />
+              <span className="flex-1">Candlestick</span>
+              <Check className="size-4 text-[#F4C430]" />
+            </DropdownMenuItem>
+            <p className="px-2 pb-1.5 text-[10px] leading-4 text-muted-foreground">
+              TradingView widget — candlestick view with built-in drawing tools.
+            </p>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

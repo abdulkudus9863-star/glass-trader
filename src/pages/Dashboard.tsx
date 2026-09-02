@@ -11,7 +11,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ChartCanvas from "@/components/chart/ChartCanvas";
 import TradeIntelligence from "@/components/chart/TradeIntelligence";
-import { type ChartType } from "@/components/chart/CustomChart";
+import type { ChartType } from "@/components/chart/CustomChart";
 import IndicatorDrawer from "@/components/chart/IndicatorDrawer";
 import IndicatorModal from "@/components/chart/IndicatorModal";
 import AppHeader from "@/components/layout/AppHeader";
@@ -75,14 +75,12 @@ interface PaneCardProps {
 function PaneCard({
   pane,
   active,
-  chartType,
+  chartType: _chartType,
   indicatorList,
   founderBadge = false,
   onActivate,
 }: PaneCardProps) {
   const sym = findSymbol(pane.symbolId) ?? findSymbol("BTCUSDT")!;
-  const style =
-    chartType === "line" ? 2 : chartType === "bar" ? 0 : 1;
   return (
     <div
       role="button"
@@ -138,10 +136,8 @@ function PaneCard({
         onKeyDown={(e) => e.stopPropagation()}
       >
         <ChartCanvas
-          paneId={pane.id}
           symbolId={pane.symbolId}
           intervalId={pane.intervalId}
-          style={style}
         />
       </div>
     </div>
@@ -161,7 +157,7 @@ export default function Dashboard() {
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
   const [activeId, setActiveId] = useState("p1");
   const [rightOpen, setRightOpen] = useState(true);
-  const [chartType, setChartType] = useState<ChartType>("candles");
+  const chartType: ChartType = "candles"; // TradingView widget always renders candlesticks
   const [indicatorModalOpen, setIndicatorModalOpen] = useState(false);
   const [indicators, setIndicators] = useState<Set<string>>(
     () => new Set(["volume", "sma20"]),
@@ -233,7 +229,6 @@ export default function Dashboard() {
           intervalId={activePane.intervalId}
           onIntervalChange={(id) => updateActivePane({ intervalId: id })}
           chartType={chartType}
-          onChartTypeChange={setChartType}
           layout={layout}
           onLayoutChange={setLayout}
           rightOpen={rightOpen}
