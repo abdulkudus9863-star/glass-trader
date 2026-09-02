@@ -1,4 +1,40 @@
 import '@vly-ai/integrations';
+
+// ────────────────────────────────────────────────────────────────────────────
+// Global error handlers for dynamic import / chunk-load failures.
+// After a Vite rebuild or deploy, previously loaded chunks reference
+// module IDs that no longer exist. The browser throws a net::ERR_CHUNK_LOAD
+// error which React cannot catch. These listeners auto-reload the page.
+// ────────────────────────────────────────────────────────────────────────────
+if (typeof window !== "undefined") {
+  // Vite's own preload-error event (fires when a dynamically imported chunk
+  // fails to load — 404, network error, etc.).
+  window.addEventListener("vite:preloadError", (event) => {
+    event.preventDefault();
+    window.location.reload();
+  });
+
+  // Generic unhandled promise rejection fallback — catches any dynamic-import
+  // error that slips past the Vite-specific listener above.
+  window.addEventListener("unhandledrejection", (event) => {
+    const msg =
+      event.reason instanceof Error
+        ? event.reason.message
+        : typeof event.reason === "string"
+          ? event.reason
+          : "";
+    if (
+      msg.includes("dynamically imported module") ||
+      msg.includes("Failed to fetch dynamically imported module") ||
+      msg.includes("ChunkLoadError") ||
+      msg.includes("Loading chunk")
+    ) {
+      event.preventDefault();
+      window.location.reload();
+    }
+  });
+}
+
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
