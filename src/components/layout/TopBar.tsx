@@ -4,7 +4,6 @@ import {
   BrainCircuit,
   CandlestickChart,
   Check,
-  Cpu,
   Grid2x2,
   LineChart,
   PanelRightClose,
@@ -13,7 +12,6 @@ import {
   Rows2,
   SlidersHorizontal,
   Square,
-  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,8 +19,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -33,7 +29,6 @@ import {
 } from "@/components/ui/tooltip";
 import { TIMEFRAMES, type TimeframeId } from "@/lib/market";
 import { cn } from "@/lib/utils";
-import type { EngineMode } from "@/components/chart/ChartCanvas";
 import type { ChartType } from "@/components/chart/CustomChart";
 import SymbolSearch from "@/components/chart/SymbolSearch";
 
@@ -59,8 +54,6 @@ interface TopBarProps {
   onIntervalChange: (id: TimeframeId) => void;
   chartType: ChartType;
   onChartTypeChange: (t: ChartType) => void;
-  engineMode: EngineMode;
-  onEngineModeChange: (m: EngineMode) => void;
   layout: LayoutId;
   onLayoutChange: (l: LayoutId) => void;
   rightOpen: boolean;
@@ -71,9 +64,6 @@ interface TopBarProps {
   onToggleIndicatorDrawer: () => void;
   aiOpen: boolean;
   onToggleAi: () => void;
-  iqOpen: boolean;
-  onToggleIq: () => void;
-  strategyCount: number;
 }
 
 export default function TopBar({
@@ -83,8 +73,6 @@ export default function TopBar({
   onIntervalChange,
   chartType,
   onChartTypeChange,
-  engineMode,
-  onEngineModeChange,
   layout,
   onLayoutChange,
   rightOpen,
@@ -95,9 +83,6 @@ export default function TopBar({
   onToggleIndicatorDrawer,
   aiOpen,
   onToggleAi,
-  iqOpen,
-  onToggleIq,
-  strategyCount,
 }: TopBarProps) {
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-[#1B263B] bg-[#050811]/70 px-3 py-2">
@@ -156,69 +141,9 @@ export default function TopBar({
             })}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-300 transition-all hover:bg-white/5"
-            >
-              <Cpu className="size-4 text-[#F4C430]" />
-              <span className="hidden md:inline">Engine</span>
-              <span className="text-[10px] font-bold uppercase text-slate-400">
-                {engineMode}
-              </span>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="glass-strong w-56">
-            <DropdownMenuLabel>Chart engine</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={engineMode}
-              onValueChange={(v) => onEngineModeChange(v as EngineMode)}
-            >
-              <DropdownMenuRadioItem value="tv">
-                TradingView widget
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  default
-                </span>
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="auto">
-                Auto
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="custom">
-                Custom canvas
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <p className="px-2 pb-1.5 text-[10px] leading-4 text-muted-foreground">
-              The official TradingView engine is the default. Switch to the
-              custom canvas for SMC overlays, drawing tools, and strategy
-              injections.
-            </p>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
-        {/* Strategy overlays count */}
-        {strategyCount > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="flex h-9 items-center gap-1.5 rounded-lg border border-[#A855F7]/30 bg-[#A855F7]/10 px-2.5 text-xs font-semibold text-[#A855F7]"
-              >
-                <BrainCircuit className="size-4" />
-                <span className="font-mono text-[11px] font-bold">{strategyCount}</span>
-                <span className="hidden lg:inline">overlay</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {strategyCount} strategy overlay{strategyCount > 1 ? "s" : ""} on the canvas
-            </TooltipContent>
-          </Tooltip>
-        )}
-
         {/* Indicator drawer */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -255,28 +180,6 @@ export default function TopBar({
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">AI analysis bottom drawer</TooltipContent>
-        </Tooltip>
-
-        {/* DEEEPR IQ — institutional liquidity intelligence */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onToggleIq}
-              className={cn(
-                "glass-chip flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-all hover:bg-white/5",
-                iqOpen
-                  ? "text-[#F4C430] ring-1 ring-[#F4C430]/50"
-                  : "text-slate-300",
-              )}
-            >
-              <Zap className="size-4 text-[#F4C430]" />
-              <span className="hidden lg:inline">DEEEPR IQ</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            DEEEPR IQ — institutional liquidity intelligence
-          </TooltipContent>
         </Tooltip>
 
         {/* SMC AI */}

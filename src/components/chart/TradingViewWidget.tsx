@@ -44,18 +44,21 @@ interface TradingViewWidgetProps {
   tvSymbol: string;
   interval: string; // TV interval code, e.g. "60", "D"
   style: number; // 0 = bar, 1 = candles, 2 = line
-  studies: string[];
+  /** TradingView studies to overlay. Defaults to SMA + RSI. */
+  studies?: string[];
   /** Minimum pixel height of the widget area. Pass 0 to disable. */
   minHeight?: number;
 }
+
+const DEFAULT_STUDIES = ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"];
 
 export default function TradingViewWidget({
   paneId,
   tvSymbol,
   interval,
   style,
-  studies,
-  minHeight = 550,
+  studies = DEFAULT_STUDIES,
+  minHeight = 0,
 }: TradingViewWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 

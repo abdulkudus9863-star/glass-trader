@@ -9,10 +9,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import ChartCanvas, { type EngineMode } from "@/components/chart/ChartCanvas";
+import ChartCanvas from "@/components/chart/ChartCanvas";
 import TradeIntelligence from "@/components/chart/TradeIntelligence";
-import { type ChartType, type ToolId } from "@/components/chart/CustomChart";
-import DrawingToolbar from "@/components/chart/DrawingToolbar";
+import { type ChartType } from "@/components/chart/CustomChart";
 import IndicatorDrawer from "@/components/chart/IndicatorDrawer";
 import IndicatorModal from "@/components/chart/IndicatorModal";
 import AppHeader from "@/components/layout/AppHeader";
@@ -24,29 +23,18 @@ import { useAuth } from "@/hooks/use-auth";
 import { useKlines } from "@/hooks/use-klines";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useDeeepr } from "@/hooks/use-deeepr";
-import { useDeeeprIq } from "@/hooks/use-deeepr-iq";
-import { toChartOverlay, type DeeeprIqChartOverlay } from "@/lib/deeepr-iq";
 import { findSymbol, type TimeframeId } from "@/lib/market";
-import {
-  overlayFromSpec,
-  type StrategyOverlay,
-  type StrategySpec,
-} from "@/lib/strategy";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import RightPanel from "@/components/workspace/RightPanel";
-import Watchlist from "@/components/workspace/Watchlist";
-import CommunityChat from "@/components/workspace/CommunityChat";
-import MyAccess from "@/components/workspace/MyAccess";
 import Copilot from "@/components/workspace/Copilot";
 import MorePanel from "@/components/workspace/MorePanel";
 import Radar from "@/components/workspace/Radar";
 import SmcAnalysisDrawer from "@/components/workspace/SmcAnalysisDrawer";
 import StrategyCompiler from "@/components/workspace/StrategyCompiler";
-import DeeeprIqPanel, {
-  DEFAULT_IQ_OVERLAYS,
-  type IqOverlayPrefs,
-} from "@/components/chart/DeeeprIqPanel";
+import Watchlist from "@/components/workspace/Watchlist";
+import CommunityChat from "@/components/workspace/CommunityChat";
+import MyAccess from "@/components/workspace/MyAccess";
 
 interface PaneState {
   id: string;
@@ -80,15 +68,8 @@ interface PaneCardProps {
   active: boolean;
   chartType: ChartType;
   indicatorList: string[];
-  tool: ToolId;
-  engineMode: EngineMode;
-  chartMinHeight?: number;
   founderBadge?: boolean;
-  strategies: StrategyOverlay[];
-  iq?: DeeeprIqChartOverlay | null;
-  overlayPrefs?: IqOverlayPrefs;
   onActivate: () => void;
-  onToolConsumed: () => void;
 }
 
 function PaneCard({
@@ -96,17 +77,12 @@ function PaneCard({
   active,
   chartType,
   indicatorList,
-  tool,
-  engineMode,
-  chartMinHeight = 0,
   founderBadge = false,
-  strategies,
-  iq = null,
-  overlayPrefs = DEFAULT_IQ_OVERLAYS,
   onActivate,
-  onToolConsumed,
 }: PaneCardProps) {
   const sym = findSymbol(pane.symbolId) ?? findSymbol("BTCUSDT")!;
+  const style =
+    chartType === "line" ? 2 : chartType === "bar" ? 0 : 1;
   return (
     <div
       role="button"
@@ -157,7 +133,7 @@ function PaneCard({
         </div>
       </div>
       <div
-        className="min-h-0 flex-1 max-sm:min-h-[400px]"
+        className="min-h-0 flex-1"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
@@ -165,16 +141,7 @@ function PaneCard({
           paneId={pane.id}
           symbolId={pane.symbolId}
           intervalId={pane.intervalId}
-          chartType={chartType}
-          indicators={indicatorList}
-          tool={active ? tool : null}
-          onToolConsumed={onToolConsumed}
-          engineMode={engineMode}
-          minHeight={chartMinHeight}
-          founderBadge={founderBadge}
-          strategies={strategies}
-          iq={iq}
-          overlayPrefs={overlayPrefs}
+          style={style}
         />
       </div>
     </div>
@@ -189,24 +156,19 @@ export default function Dashboard() {
   const [tab, setTab] = useState<AppTab>("radar");
   const [smcOpen, setSmcOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [iqOpen, setIqOpen] = useState(false);
-  const [iqOverlays, setIqOverlays] = useState<IqOverlayPrefs>(DEFAULT_IQ_OVERLAYS);
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
   const [layout, setLayout] = useState<LayoutId>("1x1");
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
-  const [activeId, setActiveId] = useState("p1");      const [rightOpen, setRightOpen] = useState(true);
-  const isMobile = useIsMobile();
-  const [engineMode, setEngineMode] = useState<EngineMode>("tv");
+  const [activeId, setActiveId] = useState("p1");
+  const [rightOpen, setRightOpen] = useState(true);
   const [chartType, setChartType] = useState<ChartType>("candles");
-  const [tool, setTool] = useState<ToolId>(null);
   const [indicatorModalOpen, setIndicatorModalOpen] = useState(false);
   const [indicators, setIndicators] = useState<Set<string>>(
     () => new Set(["volume", "sma20"]),
   );
-  const [strategies, setStrategies] = useState<StrategyOverlay[]>([]);
-
   const { tokens, spend, topUp } = useTokens();
   const { canInstall, install } = usePwaInstall();
+  const isMobile = useIsMobile();
 
   const indicatorList = useMemo(() => [...indicators], [indicators]);
   const effectiveLayout = isMobile ? "1x1" : layout;
@@ -214,9 +176,7 @@ export default function Dashboard() {
     effectiveLayout === "1x1" ? panes.slice(0, 1) : effectiveLayout === "2x1" ? panes.slice(0, 2) : panes;
   const activePane = panes.find((p) => p.id === activeId) ?? panes[0];
 
-  /* DEEEPR Trade Intelligence — one analysis shared by the panel and the
-     active chart pane's overlay. The primary candles come from the same
-     useKlines stream the chart renders (single source of truth). */
+  /* DEEEPR Trade Intelligence — feeds the panel and the bottom drawer. */
   const activeLive = useKlines(activePane.symbolId, activePane.intervalId);
   const activeTickers = useMarketSnapshot([activePane.symbolId]);
   const activeTicker = activeTickers[activePane.symbolId];
@@ -224,46 +184,6 @@ export default function Dashboard() {
     price: activeTicker?.price ?? null,
     change24h: activeTicker?.change24h ?? null,
   });
-
-  /* DEEEPR IQ — real Binance depth + trade streams scored by the same
-     deterministic engine. Only the active pane carries the live overlay. */
-  const iqHook = useDeeeprIq(
-    activePane.symbolId,
-    activePane.intervalId,
-    activeLive,
-    deeepr.analysis,
-    { price: activeTicker?.price ?? null },
-  );
-  const iqOverlay = useMemo<DeeeprIqChartOverlay | null>(
-    () => toChartOverlay(iqHook.liquidity, iqHook.volumeProfile),
-    [iqHook.liquidity, iqHook.volumeProfile],
-  );
-
-  /* Convert a confirmed DEEEPR setup into the same overlay the strategy
-     compiler uses, so entry/SL/TP render on the canvas with real levels. */
-  const deeeprOverlay = useMemo<StrategyOverlay | null>(() => {
-    const a = deeepr.analysis;
-    if (!a) return null;
-    const actionable =
-      a.decision === "STRONG BUY" ||
-      a.decision === "BUY" ||
-      a.decision === "STRONG SELL" ||
-      a.decision === "SELL";
-    if (!actionable || a.direction === "NEUTRAL") return null;
-    if (a.entry.zone_low <= 0 || a.risk.stop_loss <= 0) return null;
-    return {
-      /* stable id — the levels themselves update live, but the overlay
-         identity must not churn on every candle tick */
-      id: `deeepr-${a.symbol}-${a.timeframe}`,
-      name: "DEEEPR Setup",
-      asset: a.symbol,
-      bias: a.direction,
-      entryZone: [a.entry.zone_low, a.entry.zone_high],
-      stopLoss: a.risk.stop_loss,
-      takeProfits: [a.targets.tp1, a.targets.tp2],
-      visible: true,
-    };
-  }, [deeepr.analysis]);
 
   /* keep the active pane within the visible layout */
   useEffect(() => {
@@ -293,29 +213,6 @@ export default function Dashboard() {
     });
   };
 
-  /* Strategy compiler → chart injection */
-  const applyStrategyToChart = (spec: StrategySpec) => {
-    setStrategies((prev) => [
-      ...prev.filter((s) => s.id !== spec.id),
-      overlayFromSpec(spec),
-    ]);
-    if (spec.asset !== activePane.symbolId) {
-      updateActivePane({ symbolId: spec.asset });
-    }
-    setEngineMode("custom"); // strategy overlays render on the custom canvas
-    setTab("charts");
-  };
-
-  const toggleStrategyVisible = (id: string) => {
-    setStrategies((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, visible: !s.visible } : s)),
-    );
-  };
-
-  const removeStrategy = (id: string) => {
-    setStrategies((prev) => prev.filter((s) => s.id !== id));
-  };
-
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[#050811] text-foreground">
       <AppHeader
@@ -337,8 +234,6 @@ export default function Dashboard() {
           onIntervalChange={(id) => updateActivePane({ intervalId: id })}
           chartType={chartType}
           onChartTypeChange={setChartType}
-          engineMode={engineMode}
-          onEngineModeChange={setEngineMode}
           layout={layout}
           onLayoutChange={setLayout}
           rightOpen={rightOpen}
@@ -349,47 +244,7 @@ export default function Dashboard() {
           onToggleIndicatorDrawer={() => setIndicatorDrawerOpen((o) => !o)}
           aiOpen={aiOpen}
           onToggleAi={() => setAiOpen((o) => !o)}
-          iqOpen={iqOpen}
-          onToggleIq={() => setIqOpen((o) => !o)}
-          strategyCount={strategies.length}
         />
-      )}
-
-      {/* Active strategy overlays strip (charts tab) */}
-      {tab === "charts" && strategies.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[#1B263B] bg-[#0D1424]/60 px-3 py-1.5">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-            Active indicators
-          </span>
-          {strategies.map((s) => (
-            <span
-              key={s.id}
-              className="flex items-center gap-1.5 rounded-full border border-[#A855F7]/30 bg-[#A855F7]/10 py-0.5 pl-2.5 pr-1 text-[10px] font-semibold text-[#A855F7]"
-            >
-              <span className="size-1.5 rounded-full bg-[#A855F7]" />
-              {s.name}
-              <span className="rounded bg-white/10 px-1 font-mono text-[9px] text-slate-300">
-                {s.asset}
-              </span>
-              <button
-                type="button"
-                aria-label={s.visible ? "Hide overlay" : "Show overlay"}
-                onClick={() => toggleStrategyVisible(s.id)}
-                className="flex size-5 items-center justify-center rounded-full text-[#A855F7]/70 transition-colors hover:bg-white/10 hover:text-[#A855F7]"
-              >
-                {s.visible ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
-              </button>
-              <button
-                type="button"
-                aria-label="Remove overlay"
-                onClick={() => removeStrategy(s.id)}
-                className="flex size-5 items-center justify-center rounded-full text-[#A855F7]/70 transition-colors hover:bg-white/10 hover:text-rose-400"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-        </div>
       )}
 
       {/* Content — every tab stays mounted so the chart never loses state */}
@@ -404,19 +259,16 @@ export default function Dashboard() {
           <Radar symbolId={activePane.symbolId} timeframe={activePane.intervalId} />
         </div>
 
-        {/* CHARTS */}          <div
-            className={cn(
-              "absolute inset-0 flex gap-2.5 p-2.5 overflow-hidden",
-              tab !== "charts" && "hidden",
-            )}
-          >
-          <div className="hidden shrink-0 md:block">
-            <DrawingToolbar tool={tool} onToolChange={setTool} />
-          </div>
-
+        {/* CHARTS */}
+        <div
+          className={cn(
+            "absolute inset-0 flex gap-2.5 p-2.5 overflow-hidden",
+            tab !== "charts" && "hidden",
+          )}
+        >
           <main
             className={cn(
-              "min-h-0 min-w-0 flex-1 max-sm:h-auto max-sm:min-h-full",
+              "min-h-0 min-w-0 flex-1",
               GRID_CLASSES[effectiveLayout],
             )}
           >
@@ -427,68 +279,20 @@ export default function Dashboard() {
                 active={pane.id === activeId}
                 chartType={chartType}
                 indicatorList={indicatorList}
-                tool={tool}
-                engineMode={engineMode}
-                chartMinHeight={layout === "1x1" ? 400 : 0}
                 founderBadge={pane.id === activeId && isFounder}
-                strategies={
-                  pane.id === activeId && deeeprOverlay
-                    ? [...strategies, deeeprOverlay]
-                    : strategies
-                }
-                iq={pane.id === activeId ? iqOverlay : null}
-                overlayPrefs={iqOverlays}
                 onActivate={() => setActiveId(pane.id)}
-                onToolConsumed={() => setTool(null)}
               />
             ))}
           </main>
 
-          {!isMobile ? (
-            <AnimatePresence>
-              {rightOpen && (
-                <RightPanel
-                  activeSymbolId={activePane.symbolId}
-                  onSelectSymbol={handleSelectSymbol}
-                />
-              )}
-            </AnimatePresence>
-          ) : (
-            <Sheet open={rightOpen} onOpenChange={setRightOpen}>
-              <SheetContent
-                side="right"
-                className="w-[320px] border-l border-white/10 bg-[#0a0e1a] p-0"
-              >
-                <SheetHeader className="px-4 pt-4 pb-2">
-                  <SheetTitle className="text-sm font-bold tracking-wide text-slate-200">
-                    Watchlist & Access
-                  </SheetTitle>
-                </SheetHeader>
-                <Tabs defaultValue="watchlist" className="flex h-full min-h-0 flex-col gap-0">
-                  <TabsList className="mx-2.5 h-9 w-auto justify-start gap-1 rounded-xl bg-white/5 p-1">
-                    <TabsTrigger value="watchlist" className="h-7 gap-1 rounded-lg text-xs">
-                      Watchlist
-                    </TabsTrigger>
-                    <TabsTrigger value="chat" className="h-7 gap-1 rounded-lg text-xs">
-                      Chat
-                    </TabsTrigger>
-                    <TabsTrigger value="access" className="h-7 gap-1 rounded-lg text-xs">
-                      Access
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="watchlist" className="min-h-0 flex-1 overflow-y-auto">
-                    <Watchlist activeSymbolId={activePane.symbolId} onSelectSymbol={handleSelectSymbol} />
-                  </TabsContent>
-                  <TabsContent value="chat" className="min-h-0 flex-1 overflow-hidden">
-                    <CommunityChat />
-                  </TabsContent>
-                  <TabsContent value="access" className="min-h-0 flex-1 overflow-y-auto">
-                    <MyAccess />
-                  </TabsContent>
-                </Tabs>
-              </SheetContent>
-            </Sheet>
-          )}
+          <AnimatePresence>
+            {rightOpen && (
+              <RightPanel
+                activeSymbolId={activePane.symbolId}
+                onSelectSymbol={handleSelectSymbol}
+              />
+            )}
+          </AnimatePresence>
 
           <SmcAnalysisDrawer
             open={smcOpen}
@@ -512,19 +316,6 @@ export default function Dashboard() {
             price={activeTicker?.price ?? null}
             change24h={activeTicker?.change24h ?? null}
           />
-          <DeeeprIqPanel
-            open={iqOpen}
-            onOpenChange={setIqOpen}
-            symbolId={activePane.symbolId}
-            intervalId={activePane.intervalId}
-            live={activeLive}
-            deeepr={deeepr}
-            iqHook={iqHook}
-            price={activeTicker?.price ?? null}
-            change24h={activeTicker?.change24h ?? null}
-            overlays={iqOverlays}
-            onOverlaysChange={setIqOverlays}
-          />
         </div>
 
         {/* STRATEGY */}
@@ -539,7 +330,7 @@ export default function Dashboard() {
             onSpend={spend}
             activeAsset={activePane.symbolId}
             activeTimeframe={activePane.intervalId}
-            onApplyToChart={applyStrategyToChart}
+            onApplyToChart={() => setTab("charts")}
           />
         </div>
 
@@ -568,6 +359,44 @@ export default function Dashboard() {
           />
         </div>
       </div>
+
+      {/* Mobile right-panel sheet */}
+      {isMobile && (
+        <Sheet open={rightOpen} onOpenChange={setRightOpen}>
+          <SheetContent
+            side="right"
+            className="w-[320px] border-l border-white/10 bg-[#0a0e1a] p-0"
+          >
+            <SheetHeader className="px-4 pt-4 pb-2">
+              <SheetTitle className="text-sm font-bold tracking-wide text-slate-200">
+                Watchlist & Access
+              </SheetTitle>
+            </SheetHeader>
+            <Tabs defaultValue="watchlist" className="flex h-full min-h-0 flex-col gap-0">
+              <TabsList className="mx-2.5 h-9 w-auto justify-start gap-1 rounded-xl bg-white/5 p-1">
+                <TabsTrigger value="watchlist" className="h-7 gap-1 rounded-lg text-xs">
+                  Watchlist
+                </TabsTrigger>
+                <TabsTrigger value="chat" className="h-7 gap-1 rounded-lg text-xs">
+                  Chat
+                </TabsTrigger>
+                <TabsTrigger value="access" className="h-7 gap-1 rounded-lg text-xs">
+                  Access
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="watchlist" className="min-h-0 flex-1 overflow-y-auto">
+                <Watchlist activeSymbolId={activePane.symbolId} onSelectSymbol={handleSelectSymbol} />
+              </TabsContent>
+              <TabsContent value="chat" className="min-h-0 flex-1 overflow-hidden">
+                <CommunityChat />
+              </TabsContent>
+              <TabsContent value="access" className="min-h-0 flex-1 overflow-y-auto">
+                <MyAccess />
+              </TabsContent>
+            </Tabs>
+          </SheetContent>
+        </Sheet>
+      )}
 
       <IndicatorModal
         open={indicatorModalOpen}

@@ -13,15 +13,13 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Link } from "react-router";
-import CustomChart from "@/components/chart/CustomChart";
+import TradingViewWidget from "@/components/chart/TradingViewWidget";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WATCHLIST_IDS, useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useKlines } from "@/hooks/use-klines";
 import { formatPercent, formatPrice } from "@/lib/market";
 import { cn } from "@/lib/utils";
-
-const NO_INDICATORS: string[] = [];
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -177,22 +175,18 @@ function HeroChartCard() {
         </span>
       </div>
       <div className="h-[300px] overflow-hidden rounded-xl bg-[#050811]/90 p-1 ring-1 ring-white/5">
-        <CustomChart
-          candles={candles}
-          symbolId="BTCUSDT"
-          decimals={2}
-          intraday
-          chartType="candles"
-          indicatorIds={NO_INDICATORS}
-          tool={null}
-          onToolConsumed={() => {}}
-          resetKey="BTCUSDT-15m"
+        <TradingViewWidget
+          paneId="hero"
+          tvSymbol="BINANCE:BTCUSDT"
+          interval="15"
+          style={1}
+          minHeight={0}
         />
       </div>
       <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-muted-foreground">
-        <span>Custom canvas engine · live Binance tape</span>
+        <span>TradingView widget · live Binance feed</span>
         <span>
-          {candles.length > 0 ? `${candles.length} bars` : "no bars yet"} · auto-fits
+          {candles.length > 0 ? `${candles.length} bars` : "loading…"}
         </span>
       </div>
     </motion.div>
