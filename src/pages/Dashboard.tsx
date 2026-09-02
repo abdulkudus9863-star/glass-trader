@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ChartCanvas from "@/components/chart/ChartCanvas";
+import StrategyOverlay from "@/components/chart/StrategyOverlay";
 import TradeIntelligence from "@/components/chart/TradeIntelligence";
 import type { ChartType } from "@/components/chart/CustomChart";
 import IndicatorDrawer from "@/components/chart/IndicatorDrawer";
@@ -260,10 +261,9 @@ export default function Dashboard() {
             "absolute inset-0 flex gap-2.5 p-2.5 overflow-hidden",
             tab !== "charts" && "hidden",
           )}
-        >
-          <main
+        >              <main
             className={cn(
-              "min-h-0 min-w-0 flex-1",
+              "min-h-0 min-w-0 flex-1 relative",
               GRID_CLASSES[effectiveLayout],
             )}
           >
@@ -278,6 +278,7 @@ export default function Dashboard() {
                 onActivate={() => setActiveId(pane.id)}
               />
             ))}
+            <StrategyOverlay />
           </main>
 
           <AnimatePresence>
