@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
+  BarChart3,
   BrainCircuit,
   CircleCheck,
   CircleX,
@@ -17,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useMemo } from "react";
+import { useStrategy } from "@/contexts/StrategyContext";
 import type { UseDeeeprResult } from "@/hooks/use-deeepr";
 import type { KlinesState } from "@/hooks/use-klines";
 import {
@@ -79,8 +81,9 @@ function confluenceRow(
   return { tone: "bad", display: label };
 }
 
-function VerdictPanel({ analysis, symbolId, decimals }: { analysis: DeeeprTradeAnalysis; symbolId: string; decimals: number }) {
+function VerdictPanel({ analysis, symbolId, intervalId, decimals }: { analysis: DeeeprTradeAnalysis; symbolId: string; intervalId: TimeframeId; decimals: number }) {
   const f = (v: number) => formatPrice(v, decimals);
+  const { setStrategy } = useStrategy();
   const buy = analysis.direction === "LONG";
   const DirIcon = buy ? ArrowUpRight : ArrowDownRight;
   const dirColor = buy ? "text-[#00E676]" : "text-[#FF1744]";
@@ -242,6 +245,29 @@ function VerdictPanel({ analysis, symbolId, decimals }: { analysis: DeeeprTradeA
         })}
       </div>
 
+      {/* Push to Chart button */}
+      {analysis.direction !== "NEUTRAL" && (
+        <button
+          type="button"
+          onClick={() =>
+            setStrategy({
+              title: `${symbolId} ${intervalId}`,
+              signalType: analysis.direction === "LONG" ? "LONG" : "SHORT",
+              entryMin: analysis.entry.zone_low,
+              entryMax: analysis.entry.zone_high,
+              stopLoss: analysis.risk.stop_loss,
+              tp1: analysis.targets.tp1,
+              tp2: analysis.targets.tp2,
+              tp3: analysis.targets.tp3,
+            })
+          }
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+        >
+          <BarChart3 className="size-4" />
+          Push Strategy to Chart
+        </button>
+      )}
+
       {/* MTF consensus */}
       <div className="rounded-xl bg-white/[0.03] px-4 py-3">
         <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -376,6 +402,7 @@ export default function TradeIntelligence({
 }: TradeIntelligenceProps) {
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const { analysis, dataStatus } = deeepr;
+  const { setStrategy } = useStrategy();
 
   const statusChip = useMemo(() => {
     if (dataStatus === "LIVE")
@@ -505,6 +532,7 @@ export default function TradeIntelligence({
                   <VerdictPanel
                     analysis={analysis}
                     symbolId={symbolId}
+                    intervalId={intervalId}
                     decimals={sym.decimals}
                   />
                 )}

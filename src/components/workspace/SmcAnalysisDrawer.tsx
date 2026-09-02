@@ -19,7 +19,9 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useStrategy } from "@/contexts/StrategyContext";
 import { api } from "@/convex/_generated/api";
 import { useAction } from "convex/react";
 import { useKlines } from "@/hooks/use-klines";
@@ -67,6 +69,7 @@ export default function SmcAnalysisDrawer({
   const { candles } = useKlines(symbolId, intervalId);
   const tickers = useMarketSnapshot([symbolId]);
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
+  const { setStrategy } = useStrategy();
 
   const ticker = tickers[symbolId];
   const lastClose = candles[candles.length - 1]?.close;
@@ -450,6 +453,28 @@ export default function SmcAnalysisDrawer({
                       </div>
                     </div>
                   </div>
+
+                  {/* Push to Chart */}
+                  {analysis.signal.bias !== "WAIT" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setStrategy({
+                          title: `${symbolId} ${intervalId}`,
+                          signalType: analysis.signal.bias === "LONG" ? "LONG" : "SHORT",
+                          entryMin: analysis.signal.entryZone[0],
+                          entryMax: analysis.signal.entryZone[1],
+                          stopLoss: analysis.signal.stopLoss,
+                          tp1: analysis.signal.tp1,
+                          tp2: analysis.signal.tp2,
+                        })
+                      }
+                      className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+                    >
+                      <BarChart3 className="size-4" />
+                      Push Strategy to Chart
+                    </button>
+                  )}
 
                   {/* Live asset stats */}
                   <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-white/[0.03] px-3 py-2.5 text-[11px] tabular-nums">
