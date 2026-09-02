@@ -1,6 +1,14 @@
 import { AnimatePresence } from "framer-motion";
 import { Eye, EyeOff, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ChartCanvas, { type EngineMode } from "@/components/chart/ChartCanvas";
 import TradeIntelligence from "@/components/chart/TradeIntelligence";
 import { type ChartType, type ToolId } from "@/components/chart/CustomChart";
@@ -27,6 +35,9 @@ import {
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import RightPanel from "@/components/workspace/RightPanel";
+import Watchlist from "@/components/workspace/Watchlist";
+import CommunityChat from "@/components/workspace/CommunityChat";
+import MyAccess from "@/components/workspace/MyAccess";
 import Copilot from "@/components/workspace/Copilot";
 import MorePanel from "@/components/workspace/MorePanel";
 import Radar from "@/components/workspace/Radar";
@@ -146,7 +157,7 @@ function PaneCard({
         </div>
       </div>
       <div
-        className="min-h-0 flex-1 max-sm:min-h-[550px]"
+        className="min-h-0 flex-1 max-sm:min-h-[400px]"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
@@ -183,8 +194,8 @@ export default function Dashboard() {
   const [indicatorDrawerOpen, setIndicatorDrawerOpen] = useState(false);
   const [layout, setLayout] = useState<LayoutId>("1x1");
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
-  const [activeId, setActiveId] = useState("p1");
-  const [rightOpen, setRightOpen] = useState(true);
+  const [activeId, setActiveId] = useState("p1");      const [rightOpen, setRightOpen] = useState(true);
+  const isMobile = useIsMobile();
   const [engineMode, setEngineMode] = useState<EngineMode>("tv");
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [tool, setTool] = useState<ToolId>(null);
@@ -198,8 +209,9 @@ export default function Dashboard() {
   const { canInstall, install } = usePwaInstall();
 
   const indicatorList = useMemo(() => [...indicators], [indicators]);
+  const effectiveLayout = isMobile ? "1x1" : layout;
   const visiblePanes =
-    layout === "1x1" ? panes.slice(0, 1) : layout === "2x1" ? panes.slice(0, 2) : panes;
+    effectiveLayout === "1x1" ? panes.slice(0, 1) : effectiveLayout === "2x1" ? panes.slice(0, 2) : panes;
   const activePane = panes.find((p) => p.id === activeId) ?? panes[0];
 
   /* DEEEPR Trade Intelligence — one analysis shared by the panel and the
@@ -392,13 +404,12 @@ export default function Dashboard() {
           <Radar symbolId={activePane.symbolId} timeframe={activePane.intervalId} />
         </div>
 
-        {/* CHARTS */}
-        <div
-          className={cn(
-            "absolute inset-0 flex gap-2.5 p-2.5 max-sm:overflow-y-auto",
-            tab !== "charts" && "hidden",
-          )}
-        >
+        {/* CHARTS */}          <div
+            className={cn(
+              "absolute inset-0 flex gap-2.5 p-2.5 overflow-hidden",
+              tab !== "charts" && "hidden",
+            )}
+          >
           <div className="hidden shrink-0 md:block">
             <DrawingToolbar tool={tool} onToolChange={setTool} />
           </div>
@@ -406,7 +417,7 @@ export default function Dashboard() {
           <main
             className={cn(
               "min-h-0 min-w-0 flex-1 max-sm:h-auto max-sm:min-h-full",
-              GRID_CLASSES[layout],
+              GRID_CLASSES[effectiveLayout],
             )}
           >
             {visiblePanes.map((pane) => (
@@ -418,7 +429,7 @@ export default function Dashboard() {
                 indicatorList={indicatorList}
                 tool={tool}
                 engineMode={engineMode}
-                chartMinHeight={layout === "1x1" ? 550 : 0}
+                chartMinHeight={layout === "1x1" ? 400 : 0}
                 founderBadge={pane.id === activeId && isFounder}
                 strategies={
                   pane.id === activeId && deeeprOverlay
@@ -433,14 +444,51 @@ export default function Dashboard() {
             ))}
           </main>
 
-          <AnimatePresence>
-            {rightOpen && (
-              <RightPanel
-                activeSymbolId={activePane.symbolId}
-                onSelectSymbol={handleSelectSymbol}
-              />
-            )}
-          </AnimatePresence>
+          {!isMobile ? (
+            <AnimatePresence>
+              {rightOpen && (
+                <RightPanel
+                  activeSymbolId={activePane.symbolId}
+                  onSelectSymbol={handleSelectSymbol}
+                />
+              )}
+            </AnimatePresence>
+          ) : (
+            <Sheet open={rightOpen} onOpenChange={setRightOpen}>
+              <SheetContent
+                side="right"
+                className="w-[320px] border-l border-white/10 bg-[#0a0e1a] p-0"
+              >
+                <SheetHeader className="px-4 pt-4 pb-2">
+                  <SheetTitle className="text-sm font-bold tracking-wide text-slate-200">
+                    Watchlist & Access
+                  </SheetTitle>
+                </SheetHeader>
+                <Tabs defaultValue="watchlist" className="flex h-full min-h-0 flex-col gap-0">
+                  <TabsList className="mx-2.5 h-9 w-auto justify-start gap-1 rounded-xl bg-white/5 p-1">
+                    <TabsTrigger value="watchlist" className="h-7 gap-1 rounded-lg text-xs">
+                      Watchlist
+                    </TabsTrigger>
+                    <TabsTrigger value="chat" className="h-7 gap-1 rounded-lg text-xs">
+                      Chat
+                    </TabsTrigger>
+                    <TabsTrigger value="access" className="h-7 gap-1 rounded-lg text-xs">
+                      Access
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="watchlist" className="min-h-0 flex-1 overflow-y-auto">
+                    <Watchlist activeSymbolId={activePane.symbolId} onSelectSymbol={handleSelectSymbol} />
+                  </TabsContent>
+                  <TabsContent value="chat" className="min-h-0 flex-1 overflow-hidden">
+                    <CommunityChat />
+                  </TabsContent>
+                  <TabsContent value="access" className="min-h-0 flex-1 overflow-y-auto">
+                    <MyAccess />
+                  </TabsContent>
+                </Tabs>
+              </SheetContent>
+            </Sheet>
+          )}
 
           <SmcAnalysisDrawer
             open={smcOpen}

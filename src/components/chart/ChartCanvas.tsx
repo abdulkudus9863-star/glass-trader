@@ -152,7 +152,6 @@ export default function ChartCanvas({
   return (
     <div
       className="relative h-full w-full min-h-0 overflow-hidden"
-      style={{ height: "100%", width: "100%", overflow: "hidden" }}
     >
       {!showWidget && (
         <CustomChart

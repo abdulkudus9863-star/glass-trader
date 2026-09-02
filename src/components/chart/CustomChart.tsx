@@ -1066,6 +1066,14 @@ export default function CustomChart({
     rebuildSeriesStructure();
     chart.timeScale().fitContent();
 
+    /* Re-fit visible range whenever the container resizes so candles always
+       fill the available horizontal space (sidebar open/close, orientation
+       change, mobile drawer, etc.). */
+    const ro = new ResizeObserver(() => {
+      chartRef.current?.timeScale().fitContent();
+    });
+    ro.observe(el);
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onToolConsumedRef.current?.();
     };
@@ -1073,6 +1081,7 @@ export default function CustomChart({
 
     return () => {
       window.removeEventListener("keydown", onKey);
+      ro.disconnect();
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.unsubscribeClick(handleChartClick);
       chart.remove();
@@ -1158,8 +1167,7 @@ export default function CustomChart({
   return (
     <div
       ref={containerRef}
-      className={cn("relative h-full w-full min-h-0", className)}
-      style={{ height: "100%", width: "100%", overflow: "hidden" }}
+      className={cn("relative h-full w-full min-h-0 overflow-hidden", className)}
     >
       {/* ------- feed state overlays (LOADING / ERROR / STALE) ------- */}
       {!hasCandles && feedStatus !== "ERROR" && (
