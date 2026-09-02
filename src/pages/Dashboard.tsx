@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ChartCanvas from "@/components/chart/ChartCanvas";
 import StrategyOverlay from "@/components/chart/StrategyOverlay";
 import TradeIntelligence from "@/components/chart/TradeIntelligence";
+import { useStrategy } from "@/contexts/StrategyContext";
 import type { ChartType } from "@/components/chart/CustomChart";
 import IndicatorDrawer from "@/components/chart/IndicatorDrawer";
 import IndicatorModal from "@/components/chart/IndicatorModal";
@@ -166,6 +167,7 @@ export default function Dashboard() {
   const { tokens, spend, topUp } = useTokens();
   const { canInstall, install } = usePwaInstall();
   const isMobile = useIsMobile();
+  const { activeStrategy, showLines, toggleLines, clearStrategy } = useStrategy();
 
   const indicatorList = useMemo(() => [...indicators], [indicators]);
   const effectiveLayout = isMobile ? "1x1" : layout;
@@ -253,15 +255,46 @@ export default function Dashboard() {
           )}
         >
           <Radar symbolId={activePane.symbolId} timeframe={activePane.intervalId} />
-        </div>
-
-        {/* CHARTS */}
+        </div>        {/* CHARTS */}
         <div
           className={cn(
-            "absolute inset-0 flex gap-2.5 p-2.5 overflow-hidden",
+            "absolute inset-0 flex flex-col gap-0 overflow-hidden",
             tab !== "charts" && "hidden",
           )}
-        >              <main
+        >
+          {/* Active strategy status bar */}
+          {activeStrategy && (
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-800 bg-[#1e222d] px-4 py-1.5 text-xs font-mono text-gray-300">
+              <div className="flex items-center space-x-2">
+                <span className="inline-block size-2 animate-pulse rounded-full bg-yellow-500" />
+                <span className="font-semibold text-yellow-400">
+                  [Active: {activeStrategy.title}]
+                </span>
+                <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-xs font-bold text-red-400">
+                  {activeStrategy.signalType}
+                </span>
+              </div>
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={toggleLines}
+                  className="text-gray-400 transition-colors hover:text-white"
+                >
+                  {showLines ? "\uD83D\uDC41\uFE0F Hide Lines" : "\uD83D\uDE48 Show Lines"}
+                </button>
+                <button
+                  type="button"
+                  onClick={clearStrategy}
+                  className="px-1 text-xs font-bold text-gray-400 hover:text-red-400"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex min-h-0 flex-1 gap-2.5 p-2.5">
+          <main
             className={cn(
               "min-h-0 min-w-0 flex-1 relative",
               GRID_CLASSES[effectiveLayout],
@@ -280,6 +313,7 @@ export default function Dashboard() {
             ))}
             <StrategyOverlay />
           </main>
+          </div>
 
           <AnimatePresence>
             {rightOpen && (
