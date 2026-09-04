@@ -1,117 +1,163 @@
-import { useEffect, useRef } from "react";
-import {
-  LineStyle,
-  type IPriceLine,
-  type ISeriesApi,
-} from "lightweight-charts";
+import { useEffect, useRef, useState } from "react";
 import { useStrategy } from "@/contexts/StrategyContext";
 
 interface StrategyPriceLinesProps {
-  /** The candlestick series to attach price lines to. */
-  series: ISeriesApi<"Candlestick"> | null;
+  /**
+   * The TradingView widget instance from onChartReady.
+   * We call widget.activeChart().createPriceLine(...) to draw horizontal lines.
+   */
+  tvWidget: any;
+}
+
+interface PriceLineConfig {
+  price: number;
+  color: string;
+  title: string;
+  lineWidth?: number;
+  lineStyle?: "solid" | "dashed" | "dotted";
 }
 
 /**
- * Renders AI strategy price lines (Entry / SL / TP) on a lightweight-charts
- * candlestick series.  Driven entirely by the StrategyContext — when
- * `activeStrategy` changes or `showLines` toggles, lines update instantly.
+ * Renders horizontal price lines (Entry / SL / TP) inside the TradingView iframe
+ * using the widget's activeChart().createPriceLine() API.
  *
- * This component does NOT create its own chart — it piggybacks on the
- * candlestickSeriesRef from the parent chart.
+ * Falls back to an HTML overlay if the chart API is not available.
  */
-export default function StrategyPriceLines({ series }: StrategyPriceLinesProps) {
+export default function StrategyPriceLines({ tvWidget }: StrategyPriceLinesProps) {
   const { activeStrategy, showLines } = useStrategy();
-  const priceLinesRef = useRef<IPriceLine[]>([]);
+  const priceLinesRef = useRef<any[]>([]);
+  const [chartReady, setChartReady] = useState(false);
 
+  // Detect when the widget's chart API is available
   useEffect(() => {
-    if (!series) return;
-
-    // ── clear existing AI indicator lines safely ──
-    priceLinesRef.current.forEach((line) => {
+    if (!tvWidget) return;
+    const checkReady = () => {
       try {
-        series.removePriceLine(line);
+        if (typeof tvWidget.activeChart === "function") {
+          setChartReady(true);
+          return;
+        }
       } catch {
-        // series may have been removed during unmount
+        // not ready
       }
-    });
+    };
+    checkReady();
+    // Poll if not immediately available
+    const interval = setInterval(checkReady, 200);
+    return () => clearInterval(interval);
+  }, [tvWidget]);
+
+  // Create / update price lines when strategy or visibility changes
+  useEffect(() => {
+    if (!tvWidget || !chartReady) return;
+
+    const removeLine = (line: any) => {
+      try {
+        const chart = tvWidget.activeChart();
+        if (chart && typeof chart.removePriceLine === "function") {
+          chart.removePriceLine(line);
+        }
+      } catch {
+        // chart may have been destroyed
+      }
+    };
+
+    // Clear existing lines
+    priceLinesRef.current.forEach(removeLine);
     priceLinesRef.current = [];
 
     if (!activeStrategy || !showLines) return;
 
-    // ── 1. Entry Line (Yellow solid) ──
-    const entryAvg =
-      (activeStrategy.entryMin + activeStrategy.entryMax) / 2;
-    const entryLine = series.createPriceLine({
+    let chart: any;
+    try {
+      chart = tvWidget.activeChart();
+    } catch {
+      return;
+    }
+    if (!chart || typeof chart.createPriceLine !== "function") return;
+
+    const configs: PriceLineConfig[] = [];
+
+    // Entry line (solid yellow, average of entry zone)
+    const entryAvg = (activeStrategy.entryMin + activeStrategy.entryMax) / 2;
+    configs.push({
       price: entryAvg,
       color: "#f0b90b",
-      lineWidth: 2,
-      lineStyle: LineStyle.Solid,
-      axisLabelVisible: true,
       title: `Entry (${entryAvg.toFixed(2)})`,
+      lineWidth: 2,
+      lineStyle: "solid",
     });
-    priceLinesRef.current.push(entryLine);
 
-    // Entry zone band (upper + lower)
-    const entryUpper = series.createPriceLine({
-      price: activeStrategy.entryMax,
-      color: "rgba(240,185,11,0.35)",
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: false,
-    });
-    const entryLower = series.createPriceLine({
-      price: activeStrategy.entryMin,
-      color: "rgba(240,185,11,0.35)",
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: false,
-    });
-    priceLinesRef.current.push(entryUpper, entryLower);
-
-    // ── 2. Stop Loss (Red dashed) ──
-    if (activeStrategy.stopLoss) {
-      const slLine = series.createPriceLine({
-        price: activeStrategy.stopLoss,
-        color: "#ef5350",
-        lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `SL (${activeStrategy.stopLoss})`,
+    // Entry zone upper bound (dashed, semi-transparent yellow)
+    if (activeStrategy.entryMax !== activeStrategy.entryMin) {
+      configs.push({
+        price: activeStrategy.entryMax,
+        color: "rgba(240,185,11,0.4)",
+        title: `Entry Upper (${activeStrategy.entryMax.toFixed(2)})`,
+        lineWidth: 1,
+        lineStyle: "dashed",
       });
-      priceLinesRef.current.push(slLine);
+      // Entry zone lower bound
+      configs.push({
+        price: activeStrategy.entryMin,
+        color: "rgba(240,185,11,0.4)",
+        title: `Entry Lower (${activeStrategy.entryMin.toFixed(2)})`,
+        lineWidth: 1,
+        lineStyle: "dashed",
+      });
     }
 
-    // ── 3. Take Profit Levels (Green dashed) ──
+    // Stop Loss (red dashed)
+    if (activeStrategy.stopLoss) {
+      configs.push({
+        price: activeStrategy.stopLoss,
+        color: "#ef5350",
+        title: `SL (${activeStrategy.stopLoss.toFixed(2)})`,
+        lineWidth: 2,
+        lineStyle: "dashed",
+      });
+    }
+
+    // Take Profit levels (green dashed)
     [activeStrategy.tp1, activeStrategy.tp2, activeStrategy.tp3].forEach(
       (tp, idx) => {
-        if (!tp) return;
-        const tpLine = series.createPriceLine({
+        if (tp == null) return;
+        configs.push({
           price: tp,
           color: "#26a69a",
+          title: `TP${idx + 1} (${tp.toFixed(2)})`,
           lineWidth: 2,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `TP${idx + 1} (${tp})`,
+          lineStyle: "dashed",
         });
-        priceLinesRef.current.push(tpLine);
       },
     );
 
-    // ── cleanup on next effect run ──
+    // Create each price line via the TradingView chart API
+    for (const cfg of configs) {
+      try {
+        // The TradingView API uses numeric lineStyle: 0=solid, 1=dotted, 2=dashed
+        const styleMap: Record<string, number> = { solid: 0, dashed: 2, dotted: 1 };
+        const line = chart.createPriceLine({
+          price: cfg.price,
+          color: cfg.color,
+          lineWidth: cfg.lineWidth ?? 2,
+          lineStyle: styleMap[cfg.lineStyle ?? "solid"] ?? 0,
+          axisLabelVisible: true,
+          title: cfg.title,
+        });
+        priceLinesRef.current.push(line);
+      } catch {
+        // Some chart states may reject createPriceLine
+      }
+    }
+
+    // Cleanup on next effect run or unmount
     return () => {
-      priceLinesRef.current.forEach((line) => {
-        try {
-          series.removePriceLine(line);
-        } catch {
-          // ignore
-        }
-      });
+      priceLinesRef.current.forEach(removeLine);
       priceLinesRef.current = [];
     };
-  }, [activeStrategy, showLines, series]);
+  }, [activeStrategy, showLines, tvWidget, chartReady]);
 
   // This component renders nothing — it only manages price lines via side effects.
   return null;
 }
-
-

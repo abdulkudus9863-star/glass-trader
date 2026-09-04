@@ -1,9 +1,10 @@
 import { Crown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useKlines } from "@/hooks/use-klines";
 import { findSymbol, getTimeframe, type TimeframeId } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import TradingViewWidget from "./TradingViewWidget";
+import StrategyPriceLines from "./StrategyPriceLines";
 
 function tvSymbolFor(id: string): string {
   const crypto = [
@@ -58,12 +59,21 @@ export default function ChartCanvas({
   const { status, error, source } = klines;
   const tf = getTimeframe(intervalId);
 
+  const [tvWidget, setTvWidget] = useState<any>(null);
+  const handleChartReady = useCallback((widget: any) => {
+    setTvWidget(widget);
+  }, []);
+
   return (
     <div className="relative h-full w-full min-h-0 overflow-hidden">
       <TradingViewWidget
         symbol={tvSymbolFor(symbolId)}
         timeframe={tf.tv}
+        onChartReady={handleChartReady}
       />
+
+      {/* Strategy price lines — horizontal Entry / SL / TP lines inside the chart */}
+      <StrategyPriceLines tvWidget={tvWidget} />
 
       {/* Founder Portal watermark badge (top-left of the chart area) */}
       <div className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-full border border-[#F4C430]/35 bg-[#0b101b]/75 px-2.5 py-1 backdrop-blur-sm">

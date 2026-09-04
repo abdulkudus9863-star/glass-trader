@@ -11,18 +11,28 @@ interface TradingViewWidgetProps {
   symbol?: string;
   /** TradingView interval code, e.g. "1", "5", "15", "60", "D", "W" */
   timeframe?: string;
+  /**
+   * Called when the TradingView chart is ready.
+   * The callback receives the widget instance — use
+   * `widget.activeChart().createPriceLine(...)` to add horizontal price lines.
+   */
+  onChartReady?: (widget: any) => void;
 }
 
 /**
  * Official TradingView Advanced Charting Widget.
  * Self-contained: loads tv.js once, cleans up on unmount, re-inits on prop change.
  * Drawing toolbar and side indicators are visible by default.
+ *
+ * Exposes `onChartReady` so parents can call `widget.activeChart().createPriceLine()`.
  */
 export const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
   symbol = 'BTCUSDT',
   timeframe = '15',
+  onChartReady,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const widgetRef = useRef<any>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -30,6 +40,7 @@ export const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
 
     // Clear previous iframe elements to avoid duplicate/freezing charts
     container.innerHTML = '';
+    widgetRef.current = null;
 
     // Create unique ID for the chart container div
     const chartId = `tv_chart_${Math.random().toString(36).substring(7)}`;
@@ -45,7 +56,7 @@ export const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
     // Initialize the TradingView Widget instance
     const initWidget = () => {
       if (window.TradingView && widgetDiv) {
-        new window.TradingView.widget({
+        const widget = new window.TradingView.widget({
           autosize: true,
           symbol: formattedSymbol,
           interval: timeframe,
@@ -58,7 +69,28 @@ export const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
           allow_symbol_change: true,
           hide_side_toolbar: false, // Keeps drawing tools visible on the left
           container_id: chartId,
+          // Expose the chart API when the widget is ready
+          ...(onChartReady ? { onChartReady: () => onChartReady(widget) } : {}),
         });
+        widgetRef.current = widget;
+
+        // If the widget doesn't fire onChartReady, try polling
+        if (onChartReady && typeof widget.onChartReady !== 'function') {
+          // Fallback: poll for the chart API
+          let attempts = 0;
+          const poll = setInterval(() => {
+            attempts++;
+            try {
+              if (typeof widget.activeChart === 'function') {
+                clearInterval(poll);
+                onChartReady(widget);
+              }
+            } catch {
+              // not ready yet
+            }
+            if (attempts > 50) clearInterval(poll); // 5 seconds max
+          }, 100);
+        }
       }
     };
 
@@ -82,15 +114,15 @@ export const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
     // Cleanup on component unmount or prop change
     return () => {
       container.innerHTML = '';
+      widgetRef.current = null;
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#131722] text-white">
-      {/* Chart Wrapper Container */}
+    <div className="relative h-full w-full bg-[#131722]">
       <div
         ref={containerRef}
-        className="w-full h-full min-h-[500px] flex-1 relative overflow-hidden"
+        className="h-full w-full overflow-hidden"
       />
     </div>
   );
