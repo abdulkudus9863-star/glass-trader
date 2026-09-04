@@ -1,163 +1,154 @@
-import { useEffect, useRef, useState } from "react";
 import { useStrategy } from "@/contexts/StrategyContext";
+import { cn } from "@/lib/utils";
 
-interface StrategyPriceLinesProps {
-  /**
-   * The TradingView widget instance from onChartReady.
-   * We call widget.activeChart().createPriceLine(...) to draw horizontal lines.
-   */
-  tvWidget: any;
-}
-
-interface PriceLineConfig {
+interface PriceTagProps {
+  label: string;
   price: number;
   color: string;
-  title: string;
-  lineWidth?: number;
-  lineStyle?: "solid" | "dashed" | "dotted";
+  glowColor: string;
+  /** Vertical position as a percentage (0 = top, 100 = bottom). */
+  top: string;
 }
 
 /**
- * Renders horizontal price lines (Entry / SL / TP) inside the TradingView iframe
- * using the widget's activeChart().createPriceLine() API.
- *
- * Falls back to an HTML overlay if the chart API is not available.
+ * A single glowing price tag on the right-side HUD.
+ * Renders as a horizontal bar with a label badge and a pointer line.
  */
-export default function StrategyPriceLines({ tvWidget }: StrategyPriceLinesProps) {
+function PriceTag({ label, price, color, glowColor, top }: PriceTagProps) {
+  return (
+    <div
+      className="pointer-events-auto absolute right-0 flex items-center gap-0 transition-all duration-300 ease-out"
+      style={{ top }}
+    >
+      {/* Horizontal pointer line from badge to the left */}
+      <div
+        className="h-[1.5px] w-6 shrink-0"
+        style={{
+          background: `linear-gradient(to left, ${color}, transparent)`,
+        }}
+      />
+      {/* Badge */}
+      <div
+        className={cn(
+          "shrink-0 rounded-md px-2 py-0.5 font-mono text-[10px] font-bold tracking-wider backdrop-blur-sm",
+          "border shadow-lg",
+        )}
+        style={{
+          backgroundColor: `${color}18`,
+          borderColor: `${color}40`,
+          color: color,
+          boxShadow: `0 0 8px ${glowColor}, 0 0 2px ${glowColor}`,
+        }}
+      >
+        <span className="mr-1 text-[8px] uppercase opacity-70">{label}</span>
+        <span className="tabular-nums">
+          {price.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Visual Levels HUD — a sleek floating overlay on the right side of the chart
+ * that shows glowing horizontal price tags for the active strategy levels.
+ *
+ * Does NOT touch the TradingView iframe — renders entirely as an HTML overlay
+ * on top of it, with pointer-events-none so chart interaction is unaffected.
+ */
+export default function StrategyPriceLines() {
   const { activeStrategy, showLines } = useStrategy();
-  const priceLinesRef = useRef<any[]>([]);
-  const [chartReady, setChartReady] = useState(false);
 
-  // Detect when the widget's chart API is available
-  useEffect(() => {
-    if (!tvWidget) return;
-    const checkReady = () => {
-      try {
-        if (typeof tvWidget.activeChart === "function") {
-          setChartReady(true);
-          return;
-        }
-      } catch {
-        // not ready
-      }
-    };
-    checkReady();
-    // Poll if not immediately available
-    const interval = setInterval(checkReady, 200);
-    return () => clearInterval(interval);
-  }, [tvWidget]);
+  if (!activeStrategy) return null;
 
-  // Create / update price lines when strategy or visibility changes
-  useEffect(() => {
-    if (!tvWidget || !chartReady) return;
+  // Collect all levels to render, sorted by price descending (top = highest)
+  const levels: {
+    label: string;
+    price: number;
+    color: string;
+    glowColor: string;
+  }[] = [];
 
-    const removeLine = (line: any) => {
-      try {
-        const chart = tvWidget.activeChart();
-        if (chart && typeof chart.removePriceLine === "function") {
-          chart.removePriceLine(line);
-        }
-      } catch {
-        // chart may have been destroyed
-      }
-    };
-
-    // Clear existing lines
-    priceLinesRef.current.forEach(removeLine);
-    priceLinesRef.current = [];
-
-    if (!activeStrategy || !showLines) return;
-
-    let chart: any;
-    try {
-      chart = tvWidget.activeChart();
-    } catch {
-      return;
-    }
-    if (!chart || typeof chart.createPriceLine !== "function") return;
-
-    const configs: PriceLineConfig[] = [];
-
-    // Entry line (solid yellow, average of entry zone)
-    const entryAvg = (activeStrategy.entryMin + activeStrategy.entryMax) / 2;
-    configs.push({
-      price: entryAvg,
-      color: "#f0b90b",
-      title: `Entry (${entryAvg.toFixed(2)})`,
-      lineWidth: 2,
-      lineStyle: "solid",
+  // TP levels (highest to lowest) — green
+  if (activeStrategy.tp3 != null) {
+    levels.push({
+      label: "TP3",
+      price: activeStrategy.tp3,
+      color: "#26a69a",
+      glowColor: "rgba(38,166,154,0.4)",
     });
+  }
+  if (activeStrategy.tp2 != null) {
+    levels.push({
+      label: "TP2",
+      price: activeStrategy.tp2,
+      color: "#26a69a",
+      glowColor: "rgba(38,166,154,0.35)",
+    });
+  }
+  if (activeStrategy.tp1 != null) {
+    levels.push({
+      label: "TP1",
+      price: activeStrategy.tp1,
+      color: "#26a69a",
+      glowColor: "rgba(38,166,154,0.3)",
+    });
+  }
 
-    // Entry zone upper bound (dashed, semi-transparent yellow)
-    if (activeStrategy.entryMax !== activeStrategy.entryMin) {
-      configs.push({
-        price: activeStrategy.entryMax,
-        color: "rgba(240,185,11,0.4)",
-        title: `Entry Upper (${activeStrategy.entryMax.toFixed(2)})`,
-        lineWidth: 1,
-        lineStyle: "dashed",
-      });
-      // Entry zone lower bound
-      configs.push({
-        price: activeStrategy.entryMin,
-        color: "rgba(240,185,11,0.4)",
-        title: `Entry Lower (${activeStrategy.entryMin.toFixed(2)})`,
-        lineWidth: 1,
-        lineStyle: "dashed",
-      });
-    }
+  // Entry (yellow) — both min and max if they differ
+  levels.push({
+    label: "ENTRY",
+    price: activeStrategy.entryMax,
+    color: "#f0b90b",
+    glowColor: "rgba(240,185,11,0.4)",
+  });
+  if (activeStrategy.entryMax !== activeStrategy.entryMin) {
+    levels.push({
+      label: "ENTRY",
+      price: activeStrategy.entryMin,
+      color: "#f0b90b",
+      glowColor: "rgba(240,185,11,0.3)",
+    });
+  }
 
-    // Stop Loss (red dashed)
-    if (activeStrategy.stopLoss) {
-      configs.push({
-        price: activeStrategy.stopLoss,
-        color: "#ef5350",
-        title: `SL (${activeStrategy.stopLoss.toFixed(2)})`,
-        lineWidth: 2,
-        lineStyle: "dashed",
-      });
-    }
+  // Stop Loss (red)
+  levels.push({
+    label: "SL",
+    price: activeStrategy.stopLoss,
+    color: "#ef5350",
+    glowColor: "rgba(239,83,80,0.4)",
+  });
 
-    // Take Profit levels (green dashed)
-    [activeStrategy.tp1, activeStrategy.tp2, activeStrategy.tp3].forEach(
-      (tp, idx) => {
-        if (tp == null) return;
-        configs.push({
-          price: tp,
-          color: "#26a69a",
-          title: `TP${idx + 1} (${tp.toFixed(2)})`,
-          lineWidth: 2,
-          lineStyle: "dashed",
-        });
-      },
-    );
+  // Sort by price descending (highest price at top)
+  levels.sort((a, b) => b.price - a.price);
 
-    // Create each price line via the TradingView chart API
-    for (const cfg of configs) {
-      try {
-        // The TradingView API uses numeric lineStyle: 0=solid, 1=dotted, 2=dashed
-        const styleMap: Record<string, number> = { solid: 0, dashed: 2, dotted: 1 };
-        const line = chart.createPriceLine({
-          price: cfg.price,
-          color: cfg.color,
-          lineWidth: cfg.lineWidth ?? 2,
-          lineStyle: styleMap[cfg.lineStyle ?? "solid"] ?? 0,
-          axisLabelVisible: true,
-          title: cfg.title,
-        });
-        priceLinesRef.current.push(line);
-      } catch {
-        // Some chart states may reject createPriceLine
-      }
-    }
+  // Compute evenly-spaced vertical positions across the overlay height.
+  // We use percentage positions so the tags spread evenly regardless of
+  // how many levels exist, avoiding overlap.
+  const tagSpacing = levels.length <= 1 ? 0 : 100 / (levels.length + 1);
 
-    // Cleanup on next effect run or unmount
-    return () => {
-      priceLinesRef.current.forEach(removeLine);
-      priceLinesRef.current = [];
-    };
-  }, [activeStrategy, showLines, tvWidget, chartReady]);
-
-  // This component renders nothing — it only manages price lines via side effects.
-  return null;
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute right-2 top-8 bottom-8 z-20 w-40 transition-all duration-300 ease-out",
+        showLines
+          ? "translate-x-0 opacity-100"
+          : "translate-x-4 opacity-0",
+      )}
+    >
+      {levels.map((level, idx) => (
+        <PriceTag
+          key={`${level.label}-${level.price}`}
+          label={level.label}
+          price={level.price}
+          color={level.color}
+          glowColor={level.glowColor}
+          top={`${tagSpacing * (idx + 1)}%`}
+        />
+      ))}
+    </div>
+  );
 }
