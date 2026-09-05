@@ -24,6 +24,7 @@ import { useTokens } from "@/hooks/use-tokens";
 import { useAuth } from "@/hooks/use-auth";
 import { useRegistration } from "@/hooks/use-registration";
 import RegistrationModal from "@/components/auth/RegistrationModal";
+import { toast } from "sonner";
 import { useKlines } from "@/hooks/use-klines";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useDeeepr } from "@/hooks/use-deeepr";
@@ -169,6 +170,31 @@ export default function Dashboard() {
   const { tokens, spend, topUp } = useTokens();
   const { isRegistered, register } = useRegistration(topUp);
   const [regModalOpen, setRegModalOpen] = useState(false);
+
+  /**
+   * AI Analysis costs 5 tokens. Deduct on open; prevent open if insufficient.
+   * Closing the panel is always free.
+   */
+  const AI_COST = 5;
+  const handleToggleAi = () => {
+    setAiOpen((prev) => {
+      if (prev) return false; // closing is free
+      // opening — check tokens
+      if (tokens < AI_COST) {
+        toast.error("Insufficient tokens. 5 tokens required to run AI Analysis.");
+        return false;
+      }
+      // deduct immediately (fire-and-forget — spend returns a promise)
+      void spend(AI_COST).then((ok) => {
+        if (ok) {
+          toast.success(`AI Analysis executed (-${AI_COST} tokens)`);
+        } else {
+          toast.error("Insufficient tokens. 5 tokens required to run AI Analysis.");
+        }
+      });
+      return true;
+    });
+  };
   const { canInstall, install } = usePwaInstall();
   const isMobile = useIsMobile();
   const { activeStrategy, showLines, toggleLines, clearStrategy } = useStrategy();
@@ -247,7 +273,7 @@ export default function Dashboard() {
           indicatorDrawerOpen={indicatorDrawerOpen}
           onToggleIndicatorDrawer={() => setIndicatorDrawerOpen((o) => !o)}
           aiOpen={aiOpen}
-          onToggleAi={() => setAiOpen((o) => !o)}
+          onToggleAi={handleToggleAi}
         />
       )}
 
