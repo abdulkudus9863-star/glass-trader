@@ -1,5 +1,4 @@
-import { Check, CircleDollarSign, ShieldCheck, Sparkles, Wallet } from "lucide-react";
-import { useState } from "react";
+import { CircleDollarSign, ShieldCheck, Sparkles, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Pack {
@@ -34,13 +33,9 @@ interface TokenStoreProps {
 }
 
 export default function TokenStore({ tokens, onTopUp }: TokenStoreProps) {
-  const [purchased, setPurchased] = useState<string | null>(null);
-
-  const buy = (p: Pack) => {
-    void onTopUp(p.tokens);
-    setPurchased(p.id);
-    window.setTimeout(() => setPurchased(null), 2500);
-  };
+  // Free token refills disabled — payment integration required to purchase.
+  // onTopUp is kept in the interface but intentionally not called:
+  // tokens can only be added via a verified payment flow (Stripe / checkout).
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
@@ -68,7 +63,6 @@ export default function TokenStore({ tokens, onTopUp }: TokenStoreProps) {
       {/* Packs */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {PACKS.map((p) => {
-          const active = purchased === p.id;
           return (
             <div
               key={p.id}
@@ -101,22 +95,11 @@ export default function TokenStore({ tokens, onTopUp }: TokenStoreProps) {
               <p className="text-[10px] text-muted-foreground">{p.perToken}</p>
               <button
                 type="button"
-                onClick={() => buy(p)}
-                className={cn(
-                  "mt-4 flex h-9 items-center justify-center gap-1.5 rounded-lg font-display text-xs font-bold transition-all",
-                  active
-                    ? "bg-[#00E676] text-[#05120a]"
-                    : "bg-[#F4C430] text-[#0a0e1a] hover:bg-[#F4C430]/85",
-                )}
+                disabled
+                className="mt-4 flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[#1B263B] bg-white/[0.03] font-display text-xs font-bold text-gray-500 cursor-not-allowed transition-all"
               >
-                {active ? (
-                  <>
-                    <Check className="size-4" />
-                    Added to wallet
-                  </>
-                ) : (
-                  `Add ${p.tokens} tokens`
-                )}
+                <CircleDollarSign className="size-3.5" />
+                Coming Soon — Payment Required
               </button>
             </div>
           );

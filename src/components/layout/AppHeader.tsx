@@ -97,11 +97,14 @@ export default function AppHeader({
       {/* Right cluster */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {/* Token wallet */}
-        <div className="glass-chip hidden h-9 items-center gap-1.5 rounded-lg px-2.5 md:flex">
-          <CircleDollarSign className="size-4 text-[#F4C430]" />
-          <span className="font-mono text-xs font-bold text-foreground">{tokens}</span>
+        <div className={cn(
+          "glass-chip hidden h-9 items-center gap-1.5 rounded-lg px-2.5 md:flex",
+          tokens < 5 && "border-[#FF1744]/40",
+        )}>
+          <CircleDollarSign className={cn("size-4", tokens < 5 ? "text-[#FF1744]" : "text-[#F4C430]")} />
+          <span className={cn("font-mono text-xs font-bold", tokens < 5 ? "text-[#FF1744]" : "text-foreground")}>{tokens}</span>
           <span className="hidden text-[10px] font-medium text-muted-foreground xl:inline">
-            Trial Tokens
+            {tokens < 5 ? "Low Credits" : "Trial Tokens"}
           </span>
         </div>
 

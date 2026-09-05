@@ -26,6 +26,9 @@ import { api } from "@/convex/_generated/api";
 import { useAction } from "convex/react";
 import { useKlines } from "@/hooks/use-klines";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
+import { useTokens } from "@/hooks/use-tokens";
+
+const STRATEGY_COST = 5;
 import { Badge } from "@/components/ui/badge";
 import { findSymbol, formatPercent, formatPrice, type TimeframeId } from "@/lib/market";
 import { analyzeSmc, formatWatchZone } from "@/lib/smc";
@@ -70,6 +73,8 @@ export default function SmcAnalysisDrawer({
   const tickers = useMarketSnapshot([symbolId]);
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const { setStrategy } = useStrategy();
+  const { tokens, spend } = useTokens();
+  const canAfford = tokens >= STRATEGY_COST;
 
   const ticker = tickers[symbolId];
   const lastClose = candles[candles.length - 1]?.close;
@@ -456,24 +461,38 @@ export default function SmcAnalysisDrawer({
 
                   {/* Push to Chart */}
                   {analysis.signal.bias !== "WAIT" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setStrategy({
-                          title: `${symbolId} ${intervalId}`,
-                          signalType: analysis.signal.bias === "LONG" ? "LONG" : "SHORT",
-                          entryMin: analysis.signal.entryZone[0],
-                          entryMax: analysis.signal.entryZone[1],
-                          stopLoss: analysis.signal.stopLoss,
-                          tp1: analysis.signal.tp1,
-                          tp2: analysis.signal.tp2,
-                        })
-                      }
-                      className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
-                    >
-                      <BarChart3 className="size-4" />
-                      Push Strategy to Chart
-                    </button>
+                    <div className="mb-4">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!canAfford) return;
+                          const ok = await spend(STRATEGY_COST);
+                          if (!ok) return;
+                          setStrategy({
+                            title: `${symbolId} ${intervalId}`,
+                            signalType: analysis.signal.bias === "LONG" ? "LONG" : "SHORT",
+                            entryMin: analysis.signal.entryZone[0],
+                            entryMax: analysis.signal.entryZone[1],
+                            stopLoss: analysis.signal.stopLoss,
+                            tp1: analysis.signal.tp1,
+                            tp2: analysis.signal.tp2,
+                          });
+                        }}
+                        disabled={!canAfford}
+                        className={canAfford
+                          ? "flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+                          : "flex w-full items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-800/50 px-4 py-2.5 text-xs font-bold text-gray-500 cursor-not-allowed"
+                        }
+                      >
+                        <BarChart3 className="size-4" />
+                        {canAfford ? `Push Strategy to Chart · −${STRATEGY_COST} tokens` : "Insufficient Tokens — Purchase Credits"}
+                      </button>
+                      {!canAfford && (
+                        <p className="mt-1.5 text-center text-[10px] font-medium text-[#FF1744]">
+                          Insufficient Tokens. Please purchase more credits to run this AI model.
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {/* Live asset stats */}

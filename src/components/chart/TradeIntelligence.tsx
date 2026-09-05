@@ -19,6 +19,9 @@ import {
 } from "lucide-react";
 import { useMemo } from "react";
 import { useStrategy } from "@/contexts/StrategyContext";
+import { useTokens } from "@/hooks/use-tokens";
+
+const STRATEGY_COST = 5;
 import type { UseDeeeprResult } from "@/hooks/use-deeepr";
 import type { KlinesState } from "@/hooks/use-klines";
 import {
@@ -84,6 +87,8 @@ function confluenceRow(
 function VerdictPanel({ analysis, symbolId, intervalId, decimals }: { analysis: DeeeprTradeAnalysis; symbolId: string; intervalId: TimeframeId; decimals: number }) {
   const f = (v: number) => formatPrice(v, decimals);
   const { setStrategy } = useStrategy();
+  const { tokens, spend } = useTokens();
+  const canAfford = tokens >= STRATEGY_COST;
   const buy = analysis.direction === "LONG";
   const DirIcon = buy ? ArrowUpRight : ArrowDownRight;
   const dirColor = buy ? "text-[#00E676]" : "text-[#FF1744]";
@@ -247,25 +252,39 @@ function VerdictPanel({ analysis, symbolId, intervalId, decimals }: { analysis: 
 
       {/* Push to Chart button */}
       {analysis.direction !== "NEUTRAL" && (
-        <button
-          type="button"
-          onClick={() =>
-            setStrategy({
-              title: `${symbolId} ${intervalId}`,
-              signalType: analysis.direction === "LONG" ? "LONG" : "SHORT",
-              entryMin: analysis.entry.zone_low,
-              entryMax: analysis.entry.zone_high,
-              stopLoss: analysis.risk.stop_loss,
-              tp1: analysis.targets.tp1,
-              tp2: analysis.targets.tp2,
-              tp3: analysis.targets.tp3,
-            })
-          }
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
-        >
-          <BarChart3 className="size-4" />
-          Push Strategy to Chart
-        </button>
+        <div>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!canAfford) return;
+              const ok = await spend(STRATEGY_COST);
+              if (!ok) return;
+              setStrategy({
+                title: `${symbolId} ${intervalId}`,
+                signalType: analysis.direction === "LONG" ? "LONG" : "SHORT",
+                entryMin: analysis.entry.zone_low,
+                entryMax: analysis.entry.zone_high,
+                stopLoss: analysis.risk.stop_loss,
+                tp1: analysis.targets.tp1,
+                tp2: analysis.targets.tp2,
+                tp3: analysis.targets.tp3,
+              });
+            }}
+            disabled={!canAfford}
+            className={canAfford
+              ? "flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+              : "flex w-full items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-800/50 px-4 py-2.5 text-xs font-bold text-gray-500 cursor-not-allowed"
+            }
+          >
+            <BarChart3 className="size-4" />
+            {canAfford ? `Push Strategy to Chart · −${STRATEGY_COST} tokens` : "Insufficient Tokens — Purchase Credits"}
+          </button>
+          {!canAfford && (
+            <p className="mt-1.5 text-center text-[10px] font-medium text-[#FF1744]">
+              Insufficient Tokens. Please purchase more credits to run this AI model.
+            </p>
+          )}
+        </div>
       )}
 
       {/* MTF consensus */}
