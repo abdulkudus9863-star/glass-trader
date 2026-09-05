@@ -1,9 +1,23 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { CandlestickChart } from "lucide-react";
-import { Link } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Gracefully clear invalid query params / hash routes so the landing page
+  // doesn't re-render with leftover junk after the redirect.
+  useEffect(() => {
+    const cleaned = location.pathname + location.search.replace(/[?&]returnTo=[^&]*&?/g, "").replace(/[?&]$/, "");
+    if (cleaned !== location.pathname + location.search || location.hash) {
+      navigate("/", { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="relative min-h-screen overflow-hidden">
       <div className="bg-aurora" />
@@ -25,10 +39,14 @@ export default function NotFound() {
             for doesn&apos;t exist.
           </p>
           <Button
-            asChild
+            type="button"
+            onClick={() => {
+              window.history.replaceState(null, "", "/");
+              navigate("/", { replace: true });
+            }}
             className="mt-6 rounded-xl bg-[#F4C430] text-[#0a0e1a] shadow-md shadow-[#F4C430]/30 hover:bg-[#F4C430]/85"
           >
-            <Link to="/">Back to Ak Analyser</Link>
+            Back to Ak Analyser
           </Button>
         </div>
       </motion.div>
