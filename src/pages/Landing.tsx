@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
@@ -12,8 +13,9 @@ import {
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import TradingViewWidget from "@/components/chart/TradingViewWidget";
+import AccessTerminalModal from "@/components/auth/AccessTerminalModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WATCHLIST_IDS, useMarketSnapshot } from "@/hooks/use-market-snapshot";
@@ -190,12 +192,44 @@ function HeroChartCard() {
   );
 }
 
+function useIsAuthenticated() {
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => {
+    try {
+      setAuthed(localStorage.getItem("auth_session_active") === "1");
+    } catch {
+      setAuthed(false);
+    }
+  }, []);
+  return authed;
+}
+
 export default function Landing() {
+  const navigate = useNavigate();
+  const isAuthenticated = useIsAuthenticated();
+  const [modalOpen, setModalOpen] = useState(false);
+
   const tickers = useMarketSnapshot(WATCHLIST_IDS);
   const movers = WATCHLIST_IDS.map((id) => tickers[id])
     .filter((t): t is NonNullable<typeof t> => Boolean(t && t.price != null))
     .sort((a, b) => Math.abs(b.change24h ?? 0) - Math.abs(a.change24h ?? 0))
     .slice(0, 6);
+
+  const handleOpenTerminal = () => {
+    if (isAuthenticated) {
+      navigate("/charts");
+    } else {
+      setModalOpen(true);
+    }
+  };
+
+  const handleSignIn = () => {
+    if (isAuthenticated) {
+      navigate("/charts");
+    } else {
+      setModalOpen(true);
+    }
+  };
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -231,22 +265,22 @@ export default function Landing() {
           </div>
           <div className="flex items-center gap-2">
             <Button
-              asChild
+              type="button"
               variant="ghost"
               size="sm"
               className="rounded-lg text-slate-300 hover:bg-white/5 hover:text-[#F4C430]"
+              onClick={handleSignIn}
             >
-              <Link to="/auth">Sign in</Link>
+              Sign in
             </Button>
             <Button
-              asChild
+              type="button"
               size="sm"
               className="rounded-lg bg-[#F4C430] text-[#0a0e1a] shadow-md shadow-[#F4C430]/30 hover:bg-[#F4C430]/85"
+              onClick={handleOpenTerminal}
             >
-              <Link to="/auth?returnTo=/dashboard">
-                Open terminal
-                <ArrowRight className="size-3.5" />
-              </Link>
+              Open terminal
+              <ArrowRight className="size-3.5" />
             </Button>
           </div>
         </nav>
@@ -301,14 +335,13 @@ export default function Landing() {
             className="mt-8 flex flex-wrap items-center gap-3"
           >
             <Button
-              asChild
+              type="button"
               size="lg"
               className="h-11 rounded-xl bg-[#F4C430] px-6 text-sm font-bold text-[#0a0e1a] shadow-lg shadow-[#F4C430]/30 hover:bg-[#F4C430]/85"
+              onClick={handleOpenTerminal}
             >
-              <Link to="/auth?returnTo=/dashboard">
-                Open the terminal
-                <ArrowRight className="size-4" />
-              </Link>
+              Open the terminal
+              <ArrowRight className="size-4" />
             </Button>
             <Button
               asChild
@@ -386,10 +419,11 @@ export default function Landing() {
             {movers.map((t) => {
               const up = (t.change24h ?? 0) >= 0;
               return (
-                <Link
+                <button
                   key={t.symbol.id}
-                  to="/auth?returnTo=/dashboard"
-                  className="glass-chip group flex items-center justify-between rounded-xl px-3.5 py-3 transition-all hover:bg-white/5"
+                  type="button"
+                  onClick={handleOpenTerminal}
+                  className="glass-chip group flex w-full items-center justify-between rounded-xl px-3.5 py-3 text-left transition-all hover:bg-white/5"
                 >
                   <div>
                     <p className="text-sm font-bold text-foreground">
@@ -420,7 +454,7 @@ export default function Landing() {
                         : `${up ? "▲" : "▼"} ${formatPercent(t.change24h)}`}
                     </p>
                   </div>
-                </Link>
+                </button>
               );
             })}
           </div>
@@ -507,13 +541,12 @@ export default function Landing() {
                 invitation and unlock instantly.
               </p>
               <Button
-                asChild
+                type="button"
                 className="mt-6 h-10 rounded-xl bg-[#F4C430] text-[#0a0e1a] shadow-md shadow-[#F4C430]/30 hover:bg-[#F4C430]/85"
+                onClick={handleOpenTerminal}
               >
-                <Link to="/auth?returnTo=/dashboard">
-                  Get started
-                  <ArrowRight className="size-4" />
-                </Link>
+                Get started
+                <ArrowRight className="size-4" />
               </Button>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -550,6 +583,11 @@ export default function Landing() {
           </p>
         </div>
       </footer>
+
+      <AccessTerminalModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+      />
     </div>
   );
 }
