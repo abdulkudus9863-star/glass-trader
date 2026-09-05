@@ -12,7 +12,7 @@ import {
   SendHorizonal,
   ShieldCheck,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import Academy from "./Academy";
 import AdminPortal from "./AdminPortal";
@@ -48,6 +48,7 @@ interface MorePanelProps {
   isFounder: boolean;
   tokens: number;
   onTopUp: (amount: number) => void;
+  onReturnToCharts?: () => void;
 }
 
 export default function MorePanel({
@@ -55,7 +56,14 @@ export default function MorePanel({
   isFounder,
   tokens,
   onTopUp,
+  onReturnToCharts,
 }: MorePanelProps) {
+  // Listen for Access Denied → return to charts
+  useEffect(() => {
+    const handler = () => onReturnToCharts?.();
+    window.addEventListener("admin-denied", handler);
+    return () => window.removeEventListener("admin-denied", handler);
+  }, [onReturnToCharts]);
   const [section, setSection] = useState<SectionId>("overview");
 
   const allSections: Section[] = [
@@ -120,7 +128,8 @@ export default function MorePanel({
       badge: "LIVE",
     },
   ];
-  const sections = allSections.filter((s) => s.id !== "admin" || isAdmin);
+  // Only the founder (owner) sees the admin panel — even other admins don't
+  const sections = allSections.filter((s) => s.id !== "admin" || isFounder);
 
   const active = sections.find((s) => s.id === section);
 
@@ -195,12 +204,12 @@ export default function MorePanel({
                   </button>
                 );
               })}
-              {!isAdmin && (
+              {!isFounder && (
                 <div className="flex items-start gap-2 rounded-2xl border border-dashed border-[#1B263B] p-4">
                   <KeyRound className="mt-0.5 size-4 shrink-0 text-[#F4C430]" />
                   <p className="text-xs leading-5 text-muted-foreground">
-                    The Founder Admin Portal is invitation-gated and visible only
-                    to administrator accounts.
+                    The Founder Admin Portal is restricted to the platform owner
+                    only. Contact the founder for access.
                   </p>
                 </div>
               )}

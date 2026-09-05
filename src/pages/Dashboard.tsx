@@ -402,6 +402,7 @@ export default function Dashboard() {
             isFounder={isFounder}
             tokens={tokens}
             onTopUp={topUp}
+            onReturnToCharts={() => setTab("charts")}
           />
         </div>
       </div>
