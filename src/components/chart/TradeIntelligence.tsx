@@ -10,6 +10,7 @@ import {
   Clock,
   Flag,
   Gauge,
+  KeyRound,
   Loader2,
   MapPin,
   ShieldX,
@@ -40,6 +41,8 @@ interface TradeIntelligenceProps {
   deeepr: UseDeeeprResult;
   price?: number | null;
   change24h?: number | null;
+  isRegistered?: boolean;
+  onOpenRegistration?: () => void;
 }
 
 const MTF_ROWS: { key: string; label: string }[] = [
@@ -84,7 +87,7 @@ function confluenceRow(
   return { tone: "bad", display: label };
 }
 
-function VerdictPanel({ analysis, symbolId, intervalId, decimals }: { analysis: DeeeprTradeAnalysis; symbolId: string; intervalId: TimeframeId; decimals: number }) {
+function VerdictPanel({ analysis, symbolId, intervalId, decimals, isRegistered, onOpenRegistration }: { analysis: DeeeprTradeAnalysis; symbolId: string; intervalId: TimeframeId; decimals: number; isRegistered?: boolean; onOpenRegistration?: () => void }) {
   const f = (v: number) => formatPrice(v, decimals);
   const { setStrategy } = useStrategy();
   const { tokens, spend } = useTokens();
@@ -253,36 +256,49 @@ function VerdictPanel({ analysis, symbolId, intervalId, decimals }: { analysis: 
       {/* Push to Chart button */}
       {analysis.direction !== "NEUTRAL" && (
         <div>
-          <button
-            type="button"
-            onClick={async () => {
-              if (!canAfford) return;
-              const ok = await spend(STRATEGY_COST);
-              if (!ok) return;
-              setStrategy({
-                title: `${symbolId} ${intervalId}`,
-                signalType: analysis.direction === "LONG" ? "LONG" : "SHORT",
-                entryMin: analysis.entry.zone_low,
-                entryMax: analysis.entry.zone_high,
-                stopLoss: analysis.risk.stop_loss,
-                tp1: analysis.targets.tp1,
-                tp2: analysis.targets.tp2,
-                tp3: analysis.targets.tp3,
-              });
-            }}
-            disabled={!canAfford}
-            className={canAfford
-              ? "flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
-              : "flex w-full items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-800/50 px-4 py-2.5 text-xs font-bold text-gray-500 cursor-not-allowed"
-            }
-          >
-            <BarChart3 className="size-4" />
-            {canAfford ? `Push Strategy to Chart · −${STRATEGY_COST} tokens` : "Insufficient Tokens — Purchase Credits"}
-          </button>
-          {!canAfford && (
-            <p className="mt-1.5 text-center text-[10px] font-medium text-[#FF1744]">
-              Insufficient Tokens. Please purchase more credits to run this AI model.
-            </p>
+          {!isRegistered ? (
+            <button
+              type="button"
+              onClick={onOpenRegistration}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+            >
+              <KeyRound className="size-4" />
+              Register to Unlock AI Engine
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!canAfford) return;
+                  const ok = await spend(STRATEGY_COST);
+                  if (!ok) return;
+                  setStrategy({
+                    title: `${symbolId} ${intervalId}`,
+                    signalType: analysis.direction === "LONG" ? "LONG" : "SHORT",
+                    entryMin: analysis.entry.zone_low,
+                    entryMax: analysis.entry.zone_high,
+                    stopLoss: analysis.risk.stop_loss,
+                    tp1: analysis.targets.tp1,
+                    tp2: analysis.targets.tp2,
+                    tp3: analysis.targets.tp3,
+                  });
+                }}
+                disabled={!canAfford}
+                className={canAfford
+                  ? "flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+                  : "flex w-full items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-800/50 px-4 py-2.5 text-xs font-bold text-gray-500 cursor-not-allowed"
+                }
+              >
+                <BarChart3 className="size-4" />
+                {canAfford ? `Push Strategy to Chart \u00b7 \u2212${STRATEGY_COST} tokens` : "Insufficient Tokens \u2014 Purchase Credits"}
+              </button>
+              {!canAfford && (
+                <p className="mt-1.5 text-center text-[10px] font-medium text-[#FF1744]">
+                  Insufficient Tokens. Please purchase more credits to run this AI model.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -418,6 +434,8 @@ export default function TradeIntelligence({
   deeepr,
   price,
   change24h,
+  isRegistered = true,
+  onOpenRegistration,
 }: TradeIntelligenceProps) {
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const { analysis, dataStatus } = deeepr;
@@ -553,6 +571,8 @@ export default function TradeIntelligence({
                     symbolId={symbolId}
                     intervalId={intervalId}
                     decimals={sym.decimals}
+                    isRegistered={isRegistered}
+                    onOpenRegistration={onOpenRegistration}
                   />
                 )}
               </div>

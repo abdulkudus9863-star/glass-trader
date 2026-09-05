@@ -22,6 +22,8 @@ import TopBar, { type LayoutId } from "@/components/layout/TopBar";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { useTokens } from "@/hooks/use-tokens";
 import { useAuth } from "@/hooks/use-auth";
+import { useRegistration } from "@/hooks/use-registration";
+import RegistrationModal from "@/components/auth/RegistrationModal";
 import { useKlines } from "@/hooks/use-klines";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useDeeepr } from "@/hooks/use-deeepr";
@@ -165,6 +167,8 @@ export default function Dashboard() {
     () => new Set(["volume", "sma20"]),
   );
   const { tokens, spend, topUp } = useTokens();
+  const { isRegistered, register } = useRegistration(topUp);
+  const [regModalOpen, setRegModalOpen] = useState(false);
   const { canInstall, install } = usePwaInstall();
   const isMobile = useIsMobile();
   const { activeStrategy, showLines, toggleLines, clearStrategy } = useStrategy();
@@ -223,6 +227,8 @@ export default function Dashboard() {
         isFounder={isFounder}
         canInstall={canInstall}
         onInstall={install}
+        isRegistered={isRegistered}
+        onOpenRegistration={() => setRegModalOpen(true)}
       />
 
       {tab === "charts" && (
@@ -329,6 +335,8 @@ export default function Dashboard() {
             onOpenChange={setSmcOpen}
             symbolId={activePane.symbolId}
             intervalId={activePane.intervalId}
+            isRegistered={isRegistered}
+            onOpenRegistration={() => setRegModalOpen(true)}
           />
           <IndicatorDrawer
             open={indicatorDrawerOpen}
@@ -345,6 +353,14 @@ export default function Dashboard() {
             deeepr={deeepr}
             price={activeTicker?.price ?? null}
             change24h={activeTicker?.change24h ?? null}
+            isRegistered={isRegistered}
+            onOpenRegistration={() => setRegModalOpen(true)}
+          />
+
+          <RegistrationModal
+            open={regModalOpen}
+            onOpenChange={setRegModalOpen}
+            onRegister={register}
           />
         </div>
 

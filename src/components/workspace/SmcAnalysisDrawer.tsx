@@ -6,6 +6,7 @@ import {
   Compass,
   Crosshair,
   Flag,
+  KeyRound,
   Layers,
   Lightbulb,
   MapPin,
@@ -61,6 +62,8 @@ interface SmcAnalysisDrawerProps {
   onOpenChange: (open: boolean) => void;
   symbolId: string;
   intervalId: TimeframeId;
+  isRegistered?: boolean;
+  onOpenRegistration?: () => void;
 }
 
 export default function SmcAnalysisDrawer({
@@ -68,6 +71,8 @@ export default function SmcAnalysisDrawer({
   onOpenChange,
   symbolId,
   intervalId,
+  isRegistered = true,
+  onOpenRegistration,
 }: SmcAnalysisDrawerProps) {
   const { candles } = useKlines(symbolId, intervalId);
   const tickers = useMarketSnapshot([symbolId]);
@@ -462,35 +467,48 @@ export default function SmcAnalysisDrawer({
                   {/* Push to Chart */}
                   {analysis.signal.bias !== "WAIT" && (
                     <div className="mb-4">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!canAfford) return;
-                          const ok = await spend(STRATEGY_COST);
-                          if (!ok) return;
-                          setStrategy({
-                            title: `${symbolId} ${intervalId}`,
-                            signalType: analysis.signal.bias === "LONG" ? "LONG" : "SHORT",
-                            entryMin: analysis.signal.entryZone[0],
-                            entryMax: analysis.signal.entryZone[1],
-                            stopLoss: analysis.signal.stopLoss,
-                            tp1: analysis.signal.tp1,
-                            tp2: analysis.signal.tp2,
-                          });
-                        }}
-                        disabled={!canAfford}
-                        className={canAfford
-                          ? "flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
-                          : "flex w-full items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-800/50 px-4 py-2.5 text-xs font-bold text-gray-500 cursor-not-allowed"
-                        }
-                      >
-                        <BarChart3 className="size-4" />
-                        {canAfford ? `Push Strategy to Chart · −${STRATEGY_COST} tokens` : "Insufficient Tokens — Purchase Credits"}
-                      </button>
-                      {!canAfford && (
-                        <p className="mt-1.5 text-center text-[10px] font-medium text-[#FF1744]">
-                          Insufficient Tokens. Please purchase more credits to run this AI model.
-                        </p>
+                      {!isRegistered ? (
+                        <button
+                          type="button"
+                          onClick={onOpenRegistration}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+                        >
+                          <KeyRound className="size-4" />
+                          Register to Unlock AI Engine
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!canAfford) return;
+                              const ok = await spend(STRATEGY_COST);
+                              if (!ok) return;
+                              setStrategy({
+                                title: `${symbolId} ${intervalId}`,
+                                signalType: analysis.signal.bias === "LONG" ? "LONG" : "SHORT",
+                                entryMin: analysis.signal.entryZone[0],
+                                entryMax: analysis.signal.entryZone[1],
+                                stopLoss: analysis.signal.stopLoss,
+                                tp1: analysis.signal.tp1,
+                                tp2: analysis.signal.tp2,
+                              });
+                            }}
+                            disabled={!canAfford}
+                            className={canAfford
+                              ? "flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
+                              : "flex w-full items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-800/50 px-4 py-2.5 text-xs font-bold text-gray-500 cursor-not-allowed"
+                            }
+                          >
+                            <BarChart3 className="size-4" />
+                            {canAfford ? `Push Strategy to Chart \u00b7 \u2212${STRATEGY_COST} tokens` : "Insufficient Tokens \u2014 Purchase Credits"}
+                          </button>
+                          {!canAfford && (
+                            <p className="mt-1.5 text-center text-[10px] font-medium text-[#FF1744]">
+                              Insufficient Tokens. Please purchase more credits to run this AI model.
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   )}

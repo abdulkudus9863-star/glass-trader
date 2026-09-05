@@ -4,7 +4,9 @@ import {
   Crown,
   Download,
   FunctionSquare,
+  KeyRound,
   LogOut,
+  UserPlus,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -43,6 +45,8 @@ interface AppHeaderProps {
   isFounder: boolean;
   canInstall: boolean;
   onInstall: () => void;
+  isRegistered?: boolean;
+  onOpenRegistration?: () => void;
 }
 
 export default function AppHeader({
@@ -54,6 +58,8 @@ export default function AppHeader({
   isFounder,
   canInstall,
   onInstall,
+  isRegistered = true,
+  onOpenRegistration,
 }: AppHeaderProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -221,22 +227,33 @@ export default function AppHeader({
           )}
         </button>
 
-        {/* Profile badge */}
-        <div className="glass-chip hidden h-9 items-center gap-2 rounded-lg py-1 pl-1 pr-2 lg:flex">
-          <Avatar className="size-7">
-            <AvatarFallback className="bg-gradient-to-br from-[#F4C430] to-yellow-600 text-[11px] font-bold text-[#0a0e1a]">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="hidden text-left leading-tight xl:block">
-            <p className="max-w-[110px] truncate text-xs font-semibold text-foreground">
-              {user?.name?.trim() || (user?.email ?? "Trader")}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              {isFounder ? "Founder / Super Admin" : isAdmin ? "Administrator" : "Pro member"}
-            </p>
+        {/* Profile badge or Register button */}
+        {isRegistered ? (
+          <div className="glass-chip hidden h-9 items-center gap-2 rounded-lg py-1 pl-1 pr-2 lg:flex">
+            <Avatar className="size-7">
+              <AvatarFallback className="bg-gradient-to-br from-[#F4C430] to-yellow-600 text-[11px] font-bold text-[#0a0e1a]">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <div className="hidden text-left leading-tight xl:block">
+              <p className="max-w-[110px] truncate text-xs font-semibold text-foreground">
+                {user?.name?.trim() || (user?.email ?? "Trader")}
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {isFounder ? "Founder / Super Admin" : isAdmin ? "Administrator" : "Verified Member"}
+              </p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenRegistration}
+            className="glass-chip flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/10 hover:shadow-sm hover:shadow-[#F4C430]/10 lg:flex"
+          >
+            <KeyRound className="size-3.5" />
+            <span className="hidden xl:inline">Access / Register</span>
+          </button>
+        )}
 
         {/* Logout */}
         <Tooltip>
