@@ -269,7 +269,13 @@ export function detectGaps(candles: Candle[], tfMs: number): { gap: boolean; mis
 
 /* --------------------------- Binance klines ---------------------------- */
 
-const BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines";
+/* Binance documents data-api.binance.vision as the base endpoint for public
+   market data; api.binance.com is geo-blocked (HTTP 451) in some regions.
+   fetchKlines tries both, in order, before reporting an error. */
+const BINANCE_KLINE_BASES = [
+  "https://api.binance.com",
+  "https://data-api.binance.vision",
+];
 
 /**
  * Strictly parse one raw Binance kline row. Every field is converted with
@@ -324,124 +330,110 @@ export async function fetchKlines(
       },
     };
   }
-  const url = `${BINANCE_KLINE_URL}?symbol=${binanceSymbol}&interval=${binanceInterval}&limit=${limit}`;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) {
-      return {
-        ok: false,
-        symbol: binanceSymbol,
-        providerSymbol: binanceSymbol,
-        timeframe: binanceInterval,
-        source: "binance",
-        serverTime: null,
-        candles: [],
-        error: {
+  const query = `symbol=${binanceSymbol}&interval=${binanceInterval}&limit=${limit}`;
+  let lastError: MarketError = {
+    code: "PROVIDER_ERROR",
+    message: `Binance request for ${binanceSymbol} ${binanceInterval} failed (network/CORS).`,
+  };
+  for (const base of BINANCE_KLINE_BASES) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${base}/api/v3/klines?${query}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        lastError = {
           code: "HTTP_ERROR",
-          message: `Binance returned HTTP ${res.status} for ${binanceSymbol} ${binanceInterval}.`,
-        },
-      };
-    }
-    const rows = (await res.json()) as unknown[];
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return {
-        ok: false,
-        symbol: binanceSymbol,
-        providerSymbol: binanceSymbol,
-        timeframe: binanceInterval,
-        source: "binance",
-        serverTime: null,
-        candles: [],
-        error: {
+          message: `Binance returned HTTP ${res.status} for ${binanceSymbol} ${binanceInterval} (${base}).`,
+        };
+        continue;
+      }
+      const rows = (await res.json()) as unknown[];
+      if (!Array.isArray(rows) || rows.length === 0) {
+        lastError = {
           code: "EMPTY_RESPONSE",
-          message: `Binance returned no candles for ${binanceSymbol} ${binanceInterval}.`,
-        },
-      };
-    }
-    const parsed: Candle[] = [];
-    for (const row of rows) {
-      const c = parseBinanceRow(row, binanceInterval);
-      if (c) parsed.push(c);
-    }
-    const candles = sanitizeCandles(parsed);
-    if (candles.length === 0) {
-      return {
-        ok: false,
-        symbol: binanceSymbol,
-        providerSymbol: binanceSymbol,
-        timeframe: binanceInterval,
-        source: "binance",
-        serverTime: null,
-        candles: [],
-        error: {
+          message: `Binance returned no candles for ${binanceSymbol} ${binanceInterval} (${base}).`,
+        };
+        continue;
+      }
+      const parsed: Candle[] = [];
+      for (const row of rows) {
+        const c = parseBinanceRow(row, binanceInterval);
+        if (c) parsed.push(c);
+      }
+      const candles = sanitizeCandles(parsed);
+      if (candles.length === 0) {
+        lastError = {
           code: "INVALID_CANDLE",
           message: `Binance returned ${rows.length} rows for ${binanceSymbol} but none passed OHLCV validation.`,
-        },
+        };
+        continue;
+      }
+      return {
+        ok: true,
+        symbol: binanceSymbol,
+        providerSymbol: binanceSymbol,
+        timeframe: binanceInterval,
+        source: "binance",
+        serverTime: null,
+        candles,
       };
-    }
-    return {
-      ok: true,
-      symbol: binanceSymbol,
-      providerSymbol: binanceSymbol,
-      timeframe: binanceInterval,
-      source: "binance",
-      serverTime: null,
-      candles,
-    };
-  } catch {
-    return {
-      ok: false,
-      symbol: binanceSymbol,
-      providerSymbol: binanceSymbol,
-      timeframe: binanceInterval,
-      source: "binance",
-      serverTime: null,
-      candles: [],
-      error: {
+    } catch {
+      lastError = {
         code: "PROVIDER_ERROR",
         message: `Binance request for ${binanceSymbol} ${binanceInterval} failed (network/CORS).`,
-      },
-    };
+      };
+    }
   }
+  return {
+    ok: false,
+    symbol: binanceSymbol,
+    providerSymbol: binanceSymbol,
+    timeframe: binanceInterval,
+    source: "binance",
+    serverTime: null,
+    candles: [],
+    error: lastError,
+  };
 }
 
 export async function fetchTicker24h(
   binanceSymbols: string[],
 ): Promise<Map<string, { price: number; change24h: number; high: number; low: number }> | null> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(
-      `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(
-        JSON.stringify(binanceSymbols),
-      )}`,
-      { signal: controller.signal },
-    );
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const rows = (await res.json()) as {
-      symbol: string;
-      lastPrice: string;
-      priceChangePercent: string;
-      highPrice: string;
-      lowPrice: string;
-    }[];
-    const map = new Map();
-    for (const row of rows) {
-      map.set(row.symbol, {
-        price: Number(row.lastPrice),
-        change24h: Number(row.priceChangePercent),
-        high: Number(row.highPrice),
-        low: Number(row.lowPrice),
+  const query = `symbols=${encodeURIComponent(JSON.stringify(binanceSymbols))}`;
+  for (const base of BINANCE_KLINE_BASES) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${base}/api/v3/ticker/24hr?${query}`, {
+        signal: controller.signal,
       });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+      const rows = (await res.json()) as {
+        symbol: string;
+        lastPrice: string;
+        priceChangePercent: string;
+        highPrice: string;
+        lowPrice: string;
+      }[];
+      const map = new Map();
+      for (const row of rows) {
+        map.set(row.symbol, {
+          price: Number(row.lastPrice),
+          change24h: Number(row.priceChangePercent),
+          high: Number(row.highPrice),
+          low: Number(row.lowPrice),
+        });
+      }
+      return map;
+    } catch {
+      /* try the next base */
     }
-    return map;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 /* ------------------------ Binance futures (flow) ------------------------ */
@@ -674,11 +666,15 @@ export function detectFVG(candles: Candle[], maxZones = 4): FvgZone[] {
     const bullish = next.low > prev.high;
     const bearish = next.high < prev.low;
     if (bullish || bearish) {
+      /* The zone is the UNFILLED GAP between candles 1 and 3: for a bearish
+         imbalance that is [candle3.high, candle1.low] — using the outer
+         edges (prev.high/next.low) would span the formative candles
+         themselves. Verified against fixtures in tests/smc.test.ts. */
       zones.push({
         startIndex: i - 1,
         endIndex: i + 1,
-        top: bullish ? next.low : prev.high,
-        bottom: bullish ? prev.high : next.low,
+        top: bullish ? next.low : prev.low,
+        bottom: bullish ? prev.high : next.high,
         bullish,
       });
       if (zones.length >= maxZones) break;

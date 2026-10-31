@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { paperPnlInr } from "@/lib/paper-pnl";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 
 /* ============================================================================
@@ -655,9 +656,10 @@ export default function PaperTrading() {
           <div className="flex flex-col gap-2">
             {openTrades.map((t) => {
               const mark = markFor(t.symbol);
-              const dir = t.direction === "long" ? 1 : -1;
               const unreal =
-                mark !== null ? (mark - t.entry) * dir * t.size * rate : null;
+                mark !== null
+                  ? paperPnlInr(t.direction, t.entry, mark, t.size, rate)
+                  : null;
               const exitValue = exitInputs[t._id] ?? (mark !== null ? String(mark) : "");
               return (
                 <div

@@ -15,6 +15,7 @@ import {
   fetchKlines,
   getTimeframe,
   normalizeSymbol,
+  resolveBinanceInterval,
   resolveProviderSymbol,
   sanitizeCandles,
   type TimeframeId,
@@ -78,7 +79,7 @@ function logPipeline(
  * Honest by construction:
  *   - crypto  → real Binance history (browser REST first, then the
  *     server-side Binance proxy when the sandbox blocks direct calls) +
- *     real `@kline` WebSocket updates
+ *     real `@kline_<interval>` WebSocket updates
  *   - others  → real Twelve Data candles via the backend (polled)
  *   - no provider data → `status: "ERROR"`, empty candles, an error code +
  *     human-readable message. NO synthetic candles are ever generated.
@@ -309,7 +310,16 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
       };
 
       const attachSocket = (binanceSymbol: string) => {
-        unsubKline = subscribeBinanceKlines(binanceSymbol, applyKline);
+        /* The Binance kline stream is <symbol>@kline_<interval> — without a
+           documented interval there is no valid stream, so we stay on REST
+           instead of opening a socket the provider would reject. */
+        const binanceInterval = resolveBinanceInterval(tf.ms);
+        if (!binanceInterval) return;
+        unsubKline = subscribeBinanceKlines(
+          binanceSymbol,
+          applyKline,
+          binanceInterval,
+        );
         unsubStatus = subscribeBinanceStatus((s) => {
           if (cancelled) return;
           if (s === "reconnecting") {
@@ -360,11 +370,13 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
         if (cancelled) return;
         if (!res || res.candles.length === 0) {
           if (candlesRef.current.length === 0) {
-            markError({
-              code: "PROVIDER_ERROR",
-              message:
-                "DATA SOURCE UNAVAILABLE — no Twelve Data key configured or the provider returned no candles for this asset.",
-            });
+            markError(
+              res?.error ?? {
+                code: "PROVIDER_ERROR",
+                message:
+                  "DATA SOURCE UNAVAILABLE — the market-data proxy call failed.",
+              },
+            );
           }
           return;
         }

@@ -116,7 +116,14 @@ function sanitizeCandles(rows: Candle[]): Candle[] {
  */
 
 const TD_BASE = "https://api.twelvedata.com";
-const BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines";
+
+/* Binance documents data-api.binance.vision as the base endpoint for public
+   market data; api.binance.com is geo-blocked (HTTP 451) in some regions.
+   The proxy tries both, in order, before reporting an error. */
+const BINANCE_KLINE_BASES = [
+  "https://api.binance.com",
+  "https://data-api.binance.vision",
+];
 
 /* ------------------------- server-side Binance proxy ------------------------ */
 
@@ -191,73 +198,70 @@ export const binanceKlines = action({
         error: { code: "TIMEFRAME_NOT_SUPPORTED", message: `Timeframe ${timeframeId} is not supported by Binance.` },
       };
     }
-    try {
-      const url = `${BINANCE_KLINE_URL}?symbol=${binanceSymbol}&interval=${interval}&limit=${Math.min(Math.max(limit, 50), 1000)}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) {
+    const query = `symbol=${binanceSymbol}&interval=${interval}&limit=${Math.min(Math.max(limit, 50), 1000)}`;
+    let lastError: MarketError = {
+      code: "PROVIDER_ERROR",
+      message: `Binance proxy request for ${binanceSymbol} failed.`,
+    };
+    for (const base of BINANCE_KLINE_BASES) {
+      try {
+        const res = await fetch(`${base}/api/v3/klines?${query}`, {
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!res.ok) {
+          lastError = {
+            code: "HTTP_ERROR",
+            message: `Binance proxy returned HTTP ${res.status} for ${binanceSymbol} ${interval} (${base}).`,
+          };
+          continue;
+        }
+        const rows = (await res.json()) as unknown[];
+        if (!Array.isArray(rows) || rows.length === 0) {
+          lastError = {
+            code: "EMPTY_RESPONSE",
+            message: `Binance proxy returned no candles for ${binanceSymbol} ${interval} (${base}).`,
+          };
+          continue;
+        }
+        const parsed: Candle[] = [];
+        for (const row of rows) {
+          const c = parseBinanceRow(row);
+          if (c) parsed.push(c);
+        }
+        const candles = sanitizeCandles(parsed);
+        if (candles.length === 0) {
+          lastError = {
+            code: "INVALID_CANDLE",
+            message: `Binance proxy returned rows that failed OHLCV validation for ${binanceSymbol}.`,
+          };
+          continue;
+        }
         return {
-          ok: false,
+          ok: true,
           symbol: symbolId,
           providerSymbol: binanceSymbol,
           timeframe: timeframeId,
           source: "binance",
           serverTime: null,
-          candles: [],
-          error: { code: "HTTP_ERROR", message: `Binance proxy returned HTTP ${res.status} for ${binanceSymbol} ${interval}.` },
+          candles,
+        };
+      } catch {
+        lastError = {
+          code: "PROVIDER_ERROR",
+          message: `Binance proxy request for ${binanceSymbol} failed.`,
         };
       }
-      const rows = (await res.json()) as unknown[];
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return {
-          ok: false,
-          symbol: symbolId,
-          providerSymbol: binanceSymbol,
-          timeframe: timeframeId,
-          source: "binance",
-          serverTime: null,
-          candles: [],
-          error: { code: "EMPTY_RESPONSE", message: `Binance proxy returned no candles for ${binanceSymbol} ${interval}.` },
-        };
-      }
-      const parsed: Candle[] = [];
-      for (const row of rows) {
-        const c = parseBinanceRow(row);
-        if (c) parsed.push(c);
-      }
-      const candles = sanitizeCandles(parsed);
-      if (candles.length === 0) {
-        return {
-          ok: false,
-          symbol: symbolId,
-          providerSymbol: binanceSymbol,
-          timeframe: timeframeId,
-          source: "binance",
-          serverTime: null,
-          candles: [],
-          error: { code: "INVALID_CANDLE", message: `Binance proxy returned rows that failed OHLCV validation for ${binanceSymbol}.` },
-        };
-      }
-      return {
-        ok: true,
-        symbol: symbolId,
-        providerSymbol: binanceSymbol,
-        timeframe: timeframeId,
-        source: "binance",
-        serverTime: null,
-        candles,
-      };
-    } catch {
-      return {
-        ok: false,
-        symbol: symbolId,
-        providerSymbol: binanceSymbol,
-        timeframe: timeframeId,
-        source: "binance",
-        serverTime: null,
-        candles: [],
-        error: { code: "PROVIDER_ERROR", message: `Binance proxy request for ${binanceSymbol} failed.` },
-      };
     }
+    return {
+      ok: false,
+      symbol: symbolId,
+      providerSymbol: binanceSymbol,
+      timeframe: timeframeId,
+      source: "binance",
+      serverTime: null,
+      candles: [],
+      error: lastError,
+    };
   },
 });
 
@@ -308,6 +312,13 @@ interface QuoteRow {
   low: number;
 }
 
+/** Structured result — every failure path carries an honest error code. */
+type TdKlinesResult = {
+  provider: "twelvedata";
+  candles: LiveCandle[];
+  error?: MarketError;
+} | null;
+
 /** Real OHLC klines for one symbol/timeframe (oldest first). */
 export const klines = action({
   args: {
@@ -315,23 +326,71 @@ export const klines = action({
     timeframeId: v.string(),
     limit: v.number(),
   },
-  handler: async (_ctx, { symbolId, timeframeId, limit }) => {
+  handler: async (
+    _ctx,
+    { symbolId, timeframeId, limit },
+  ): Promise<TdKlinesResult> => {
     const key = process.env.TWELVEDATA_API_KEY;
-    if (!key) return null;
+    if (!key) {
+      return {
+        provider: "twelvedata",
+        candles: [],
+        error: {
+          code: "PROVIDER_ERROR",
+          message:
+            "DATA SOURCE UNAVAILABLE — TWELVEDATA_API_KEY is not configured on this deployment.",
+        },
+      };
+    }
     const symbol = TD_SYMBOL[symbolId];
     const interval = TD_INTERVAL[timeframeId];
-    if (!symbol || !interval) return null;
+    if (!symbol || !interval) {
+      return {
+        provider: "twelvedata",
+        candles: [],
+        error: {
+          code: symbol ? "TIMEFRAME_NOT_SUPPORTED" : "SYMBOL_NOT_SUPPORTED",
+          message: symbol
+            ? `Timeframe ${timeframeId} is not supported by Twelve Data.`
+            : `${symbolId} is not mapped to a Twelve Data instrument.`,
+        },
+      };
+    }
     try {
       const url = `${TD_BASE}/time_series?symbol=${encodeURIComponent(
         symbol,
       )}&interval=${interval}&outputsize=${Math.min(Math.max(limit, 50), 500)}&apikey=${key}`;
       const res = await fetch(url);
-      if (!res.ok) return null;
+      if (!res.ok) {
+        return {
+          provider: "twelvedata",
+          candles: [],
+          error: {
+            code: "HTTP_ERROR",
+            message: `Twelve Data returned HTTP ${res.status} for ${symbol} ${interval}.`,
+          },
+        };
+      }
       const json = (await res.json()) as {
         status?: string;
+        message?: unknown;
         values?: { datetime: string; open: string; high: string; low: string; close: string; volume: string }[];
       };
-      if (json.status !== "ok" || !Array.isArray(json.values)) return null;
+      if (json.status !== "ok" || !Array.isArray(json.values)) {
+        /* never surface the API key in an error message */
+        const detail =
+          typeof json.message === "string"
+            ? json.message.split(key).join("***").slice(0, 200)
+            : "provider rejected the request";
+        return {
+          provider: "twelvedata",
+          candles: [],
+          error: {
+            code: "PROVIDER_ERROR",
+            message: `Twelve Data error for ${symbol} ${interval}: ${detail}`,
+          },
+        };
+      }
       const candles: LiveCandle[] = json.values
         .map((row) => {
           const time = Math.floor(new Date(row.datetime).getTime() / 1000);
@@ -345,11 +404,27 @@ export const klines = action({
           };
         })
         .filter((c) => Number.isFinite(c.time) && Number.isFinite(c.close));
-      if (candles.length === 0) return null;
+      if (candles.length === 0) {
+        return {
+          provider: "twelvedata",
+          candles: [],
+          error: {
+            code: "EMPTY_RESPONSE",
+            message: `Twelve Data returned no candles for ${symbol} ${interval}.`,
+          },
+        };
+      }
       candles.reverse(); // Twelve Data returns newest first
-      return { provider: "twelvedata" as const, candles };
+      return { provider: "twelvedata", candles };
     } catch {
-      return null;
+      return {
+        provider: "twelvedata",
+        candles: [],
+        error: {
+          code: "PROVIDER_ERROR",
+          message: `Twelve Data request for ${symbol} ${interval} failed (network).`,
+        },
+      };
     }
   },
 });

@@ -14,8 +14,54 @@
 
 export type Row = Record<string, any> & { _id: string; _creationTime: number };
 
+interface Clause {
+  field: string;
+  op: "eq" | "gt" | "gte" | "lt" | "lte";
+  value: any;
+}
+
+function applyClauses(rows: Row[], clauses: Clause[]): Row[] {
+  return rows.filter((r) =>
+    clauses.every((c) => {
+      switch (c.op) {
+        case "eq":
+          return r[c.field] === c.value;
+        case "gt":
+          return r[c.field] > c.value;
+        case "gte":
+          return r[c.field] >= c.value;
+        case "lt":
+          return r[c.field] < c.value;
+        case "lte":
+          return r[c.field] <= c.value;
+      }
+    }),
+  );
+}
+
+function buildIndexApi(rows: Row[], clauses: Clause[]) {
+  let ordered: Row[] | null = null;
+  const materialize = () => applyClauses(ordered ?? rows, clauses);
+  const api: any = {
+    order: (dir: "asc" | "desc") => {
+      const base = ordered ?? [...rows];
+      base.sort((a, b) =>
+        a._creationTime === b._creationTime
+          ? 0
+          : (a._creationTime < b._creationTime ? -1 : 1) * (dir === "desc" ? -1 : 1),
+      );
+      ordered = base;
+      return api;
+    },
+    first: async () => materialize()[0] ?? null,
+    collect: async () => materialize(),
+    take: async (n: number) => materialize().slice(0, n),
+  };
+  return api;
+}
+
 export class FakeDb {
-  tables = new Map<string, Row[]>();
+  private tables = new Map<string, Row[]>();
   private seq = 0;
 
   private rows(table: string): Row[] {
@@ -34,7 +80,11 @@ export class FakeDb {
   async insert(table: string, doc: Record<string, any>): Promise<string> {
     this.seq += 1;
     const _id = `${table}:${this.seq}`;
-    this.rows(table).push({ ...doc, _id, _creationTime: 1_700_000_000_000 + this.seq });
+    this.rows(table).push({
+      ...doc,
+      _id,
+      _creationTime: 1_700_000_000_000 + this.seq,
+    });
     return _id;
   }
 
@@ -58,56 +108,25 @@ export class FakeDb {
     return this.rows(table).length;
   }
 
+  /** Insert a fully-formed row (test seeding only). */
+  seed(table: string, doc: Record<string, any>): string {
+    this.seq += 1;
+    const _id = `${table}:${this.seq}`;
+    this.rows(table).push({
+      ...doc,
+      _id,
+      _creationTime: doc._creationTime ?? 1_700_000_000_000 + this.seq,
+    });
+    return _id;
+  }
+
   query(table: string) {
-    const build = () => {
-      const clauses: { field: string; op: string; value: any }[] = [];
-      let sorted: Row[] | null = null;
-
-      const api: any = {
-        order: (dir: "asc" | "desc") => {
-          const base = sorted ?? [...this.rows(table)];
-          base.sort((a, b) =>
-            a._creationTime === b._creationTime
-              ? 0
-              : (a._creationTime < b._creationTime ? -1 : 1) *
-                (dir === "desc" ? -1 : 1),
-          );
-          sorted = base;
-          return api;
-        },
-        first: async () => (sorted ?? this.rows(table)).filter(match)[0] ?? null,
-        collect: async () => (sorted ?? this.rows(table)).filter(match),
-        take: async (n: number) => (sorted ?? this.rows(table)).filter(match).slice(0, n),
-      };
-
-      function match(r: Row): boolean {
-        return clauses.every((c) => {
-          switch (c.op) {
-            case "eq":
-              return r[c.field] === c.value;
-            case "gt":
-              return r[c.field] > c.value;
-            case "gte":
-              return r[c.field] >= c.value;
-            case "lt":
-              return r[c.field] < c.value;
-            case "lte":
-              return r[c.field] <= c.value;
-            default:
-              return true;
-          }
-        });
-      }
-
-      return api;
-    };
-
     return {
       withIndex: (_name: string, fn?: (q: any) => any) => {
-        const clauses: { field: string; op: string; value: any }[] = [];
+        const clauses: Clause[] = [];
         if (fn) {
           const q: any = {};
-          for (const op of ["eq", "gt", "gte", "lt", "lte"]) {
+          for (const op of ["eq", "gt", "gte", "lt", "lte"] as const) {
             q[op] = (field: string, value: any) => {
               clauses.push({ field, op, value });
               return q;
@@ -115,57 +134,10 @@ export class FakeDb {
           }
           fn(q);
         }
-        // rebuild with recorded clauses captured in closure
-        const api = buildWith(clauses, this, table);
-        return api;
+        return buildIndexApi(this.rows(table), clauses);
       },
     };
   }
-}
-
-function buildWith(
-  clauses: { field: string; op: string; value: any }[],
-  db: FakeDb,
-  table: string,
-) {
-  const rowsOf = () => db["rows"] ? (db as any).rows(table) : [];
-  const filter = (rows: Row[]) =>
-    rows.filter((r) =>
-      clauses.every((c) => {
-        switch (c.op) {
-          case "eq":
-            return r[c.field] === c.value;
-          case "gt":
-            return r[c.field] > c.value;
-          case "gte":
-            return r[c.field] >= c.value;
-          case "lt":
-            return r[c.field] < c.value;
-          case "lte":
-            return r[c.field] <= c.value;
-          default:
-            return true;
-        }
-      }),
-    );
-
-  let ordered: Row[] | null = null;
-  const api: any = {
-    order: (dir: "asc" | "desc") => {
-      const base = ordered ?? [...rowsOf()];
-      base.sort((a, b) =>
-        a._creationTime === b._creationTime
-          ? 0
-          : (a._creationTime < b._creationTime ? -1 : 1) * (dir === "desc" ? -1 : 1),
-      );
-      ordered = base;
-      return api;
-    },
-    first: async () => filter(ordered ?? rowsOf())[0] ?? null,
-    collect: async () => filter(ordered ?? rowsOf()),
-    take: async (n: number) => filter(ordered ?? rowsOf()).slice(0, n),
-  };
-  return api;
 }
 
 /** ctx with optional authenticated subject (null = signed out). */

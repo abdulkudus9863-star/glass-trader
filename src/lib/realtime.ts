@@ -128,7 +128,13 @@ function anyHandlers(): boolean {
 function streamNames(): string[] {
   const out: string[] = [];
   for (const s of tickerHandlers.keys()) out.push(`${s.toLowerCase()}@miniTicker`);
-  for (const s of klineHandlers.keys()) out.push(`${s.toLowerCase()}@kline`);
+  /* Kline streams are `<symbol>@kline_<interval>` — the interval suffix is
+     required by the Binance API (docs: Kline/Candlestick Streams). Keys are
+     `${SYMBOL}|${interval}` so the same symbol can stream several buckets. */
+  for (const s of klineHandlers.keys()) {
+    const [sym, iv] = s.split("|");
+    out.push(`${sym.toLowerCase()}@kline_${iv}`);
+  }
   for (const s of depthHandlers.keys()) out.push(`${s.toLowerCase()}@depth20@100ms`);
   for (const s of tradeHandlers.keys()) out.push(`${s.toLowerCase()}@aggTrade`);
   return out;
@@ -234,7 +240,11 @@ function connect(): void {
             // never let one subscriber break the shared socket
           }
         }
-      } else if (stream.endsWith("@kline") && raw.k) {
+      } else if (raw.k && /^@kline_\d+[smhdwM]?$/.test(stream.slice(stream.indexOf("@")))) {
+        /* combined frames carry the real stream name (e.g. btcusdt@kline_1m) —
+           the interval suffix is part of it and routes the frame to handlers
+           subscribed for exactly that bucket. */
+        const klineInterval = stream.slice(stream.indexOf("@kline_") + 7);
         const k = raw.k;
         /* §6/§7 — every field must be a finite number from the provider.
            A malformed frame is dropped, never coerced into 0 values. */
@@ -264,7 +274,7 @@ function connect(): void {
           isClosed: Boolean(k.x),
           receivedAt: Date.now(),
         };
-        const set = klineHandlers.get(symbol);
+        const set = klineHandlers.get(`${symbol}|${klineInterval}`);
         if (!set) return;
         for (const handler of set) {
           try {
@@ -439,26 +449,30 @@ export function subscribeBinanceTicker(
 }
 
 /**
- * Subscribe to the live kline stream for one Binance symbol. The handler
- * receives every update of the *current* candle (real OHLCV) plus the
- * closed-candle event (`isClosed === true`).
+ * Subscribe to the live kline stream for one Binance symbol at one exact
+ * Binance interval ("1m", "15m", "1h", … — the same strings Binance
+ * documents for `<symbol>@kline_<interval>`). The handler receives every
+ * update of the *current* candle (real OHLCV) plus the closed-candle event
+ * (`isClosed === true`).
  */
 export function subscribeBinanceKlines(
   binanceSymbol: string,
   handler: KlineHandler,
+  binanceInterval: string,
 ): () => void {
   const symbol = binanceSymbol.toUpperCase();
-  const set = klineHandlers.get(symbol) ?? new Set<KlineHandler>();
+  const key = `${symbol}|${binanceInterval}`;
+  const set = klineHandlers.get(key) ?? new Set<KlineHandler>();
   set.add(handler);
-  klineHandlers.set(symbol, set);
+  klineHandlers.set(key, set);
   ensureWatchdog();
   connect();
 
   return () => {
-    const current = klineHandlers.get(symbol);
+    const current = klineHandlers.get(key);
     if (!current) return;
     current.delete(handler);
-    if (current.size === 0) klineHandlers.delete(symbol);
+    if (current.size === 0) klineHandlers.delete(key);
     if (!anyHandlers()) tearDownSocket();
     stopWatchdogIfIdle();
   };

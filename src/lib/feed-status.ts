@@ -77,8 +77,16 @@ export function feedBadge(
       : source === "twelvedata"
         ? " · TWELVEDATA"
         : "";
+  /* A STALE pipeline status can never be dressed up as LIVE, whatever the
+     freshness argument says — the stricter of the two always wins. */
+  if (status === "STALE" || freshness === "STALE") {
+    return { label: `STALE${suffix}`, tone: "stale" };
+  }
+  /* A resyncing stream is history-only until the socket catches up — at best
+     DELAYED, never LIVE, regardless of the freshness argument. */
+  if (status === "RESYNCING" || freshness === "DELAYED") {
+    return { label: `DELAYED${suffix}`, tone: "delayed" };
+  }
   if (freshness === "LIVE") return { label: `LIVE${suffix}`, tone: "live" };
-  if (freshness === "DELAYED") return { label: `DELAYED${suffix}`, tone: "delayed" };
-  if (freshness === "STALE") return { label: `STALE${suffix}`, tone: "stale" };
   return { label: "OFFLINE", tone: "error" };
 }
