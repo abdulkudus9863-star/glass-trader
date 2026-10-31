@@ -12,6 +12,7 @@ import {
   Rows2,
   SlidersHorizontal,
   Square,
+  Tv,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +30,7 @@ import {
 } from "@/components/ui/tooltip";
 import { TIMEFRAMES, type TimeframeId } from "@/lib/market";
 import { cn } from "@/lib/utils";
-import type { ChartType } from "@/components/chart/CustomChart";
+import type { ChartMode, ChartType } from "@/components/chart/CustomChart";
 import SymbolSearch from "@/components/chart/SymbolSearch";
 
 export type LayoutId = "1x1" | "2x1" | "2x2";
@@ -53,6 +54,9 @@ interface TopBarProps {
   intervalId: TimeframeId;
   onIntervalChange: (id: TimeframeId) => void;
   chartType: ChartType;
+  /** Which chart engine renders in the panes (persisted by the Dashboard). */
+  chartMode: ChartMode;
+  onChartModeChange: (m: ChartMode) => void;
   layout: LayoutId;
   onLayoutChange: (l: LayoutId) => void;
   rightOpen: boolean;
@@ -71,6 +75,8 @@ export default function TopBar({
   intervalId,
   onIntervalChange,
   chartType,
+  chartMode,
+  onChartModeChange,
   layout,
   onLayoutChange,
   rightOpen,
@@ -127,6 +133,44 @@ export default function TopBar({
             </p>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Chart engine selector: TradingView widget vs Lightweight Charts */}
+        <div
+          className="glass-chip flex h-9 shrink-0 items-center gap-0.5 rounded-lg p-1"
+          role="group"
+          aria-label="Chart mode"
+        >
+          <button
+            type="button"
+            aria-pressed={chartMode === "tradingview"}
+            onClick={() => onChartModeChange("tradingview")}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-all",
+              chartMode === "tradingview"
+                ? "bg-[#F4C430] text-[#0a0e1a] shadow-sm shadow-[#F4C430]/30"
+                : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
+            )}
+            title="TradingView Advanced Widget (external feed)"
+          >
+            <Tv className="size-3.5" />
+            <span className="hidden sm:inline">TradingView</span>
+          </button>
+          <button
+            type="button"
+            aria-pressed={chartMode === "lightweight"}
+            onClick={() => onChartModeChange("lightweight")}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-all",
+              chartMode === "lightweight"
+                ? "bg-[#F4C430] text-[#0a0e1a] shadow-sm shadow-[#F4C430]/30"
+                : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
+            )}
+            title="Lightweight Charts — rendered from the app's validated candles"
+          >
+            <CandlestickChart className="size-3.5" />
+            <span className="hidden sm:inline">Lightweight</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">

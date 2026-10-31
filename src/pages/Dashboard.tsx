@@ -13,7 +13,12 @@ import ChartCanvas from "@/components/chart/ChartCanvas";
 import StrategyOverlay from "@/components/chart/StrategyOverlay";
 import TradeIntelligence from "@/components/chart/TradeIntelligence";
 import { useStrategy } from "@/contexts/StrategyContext";
-import type { ChartType } from "@/components/chart/CustomChart";
+import {
+  loadChartMode,
+  saveChartMode,
+  type ChartMode,
+  type ChartType,
+} from "@/components/chart/CustomChart";
 import IndicatorDrawer from "@/components/chart/IndicatorDrawer";
 import IndicatorModal from "@/components/chart/IndicatorModal";
 import AppHeader from "@/components/layout/AppHeader";
@@ -72,6 +77,7 @@ interface PaneCardProps {
   pane: PaneState;
   active: boolean;
   chartType: ChartType;
+  mode: ChartMode;
   indicatorList: string[];
   founderBadge?: boolean;
   onActivate: () => void;
@@ -81,6 +87,7 @@ function PaneCard({
   pane,
   active,
   chartType: _chartType,
+  mode,
   indicatorList,
   founderBadge = false,
   onActivate,
@@ -143,6 +150,8 @@ function PaneCard({
         <ChartCanvas
           symbolId={pane.symbolId}
           intervalId={pane.intervalId}
+          mode={mode}
+          indicators={indicatorList}
         />
       </div>
     </div>
@@ -162,7 +171,12 @@ export default function Dashboard() {
   const [panes, setPanes] = useState<PaneState[]>(DEFAULT_PANES);
   const [activeId, setActiveId] = useState("p1");
   const [rightOpen, setRightOpen] = useState(true);
-  const chartType: ChartType = "candles"; // TradingView widget always renders candlesticks
+  const chartType: ChartType = "candles"; // Both chart engines render candlesticks
+  const [chartMode, setChartMode] = useState<ChartMode>(() => loadChartMode());
+  const handleChartModeChange = (m: ChartMode) => {
+    setChartMode(m);
+    saveChartMode(m);
+  };
   const [indicatorModalOpen, setIndicatorModalOpen] = useState(false);
   const [indicators, setIndicators] = useState<Set<string>>(
     () => new Set(["volume", "sma20"]),
@@ -264,6 +278,8 @@ export default function Dashboard() {
           intervalId={activePane.intervalId}
           onIntervalChange={(id) => updateActivePane({ intervalId: id })}
           chartType={chartType}
+          chartMode={chartMode}
+          onChartModeChange={handleChartModeChange}
           layout={layout}
           onLayoutChange={setLayout}
           rightOpen={rightOpen}
@@ -338,6 +354,7 @@ export default function Dashboard() {
                 pane={pane}
                 active={pane.id === activeId}
                 chartType={chartType}
+                mode={chartMode}
                 indicatorList={indicatorList}
                 founderBadge={pane.id === activeId && isFounder}
                 onActivate={() => setActiveId(pane.id)}

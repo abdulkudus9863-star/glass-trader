@@ -19,6 +19,7 @@ import {
   sanitizeCandles,
   type TimeframeId,
 } from "@/lib/market";
+import { computeFreshness, type FeedFreshness } from "@/lib/feed-status";
 
 export type KlineStatus =
   | "CONNECTING"
@@ -29,7 +30,7 @@ export type KlineStatus =
   | "ERROR";
 
 /** Spec-compliant freshness label — Trade AI must only run when LIVE. */
-export type DataFreshness = "LIVE" | "DELAYED" | "STALE" | "OFFLINE";
+export type DataFreshness = FeedFreshness;
 
 export interface KlinesState {
   candles: Candle[];
@@ -131,21 +132,12 @@ export function useKlines(symbolId: string, intervalId: TimeframeId): KlinesStat
     updatedAt == null ? null : Math.max(0, Math.round((now - updatedAt) / 1000));
 
   /* Provider-aware freshness thresholds — Binance WS updates on every trade,
-     Twelve Data is polled every 45s. Adjusting to the provider is the honest
-     reading of the spec, not a fake LIVE. */
-  const freshness: DataFreshness = useMemo(() => {
-    if (status === "ERROR") return "STALE";
-    if (status === "RECONNECTING") return "STALE";
-    if (status === "CONNECTING") return "DELAYED";
-    if (updatedAt == null) return "DELAYED";
-    const age = (now - updatedAt) / 1000;
-    const liveMax = source === "binance" ? 30 : 120;
-    const delayedMax = source === "binance" ? 120 : 300;
-    if (status === "RESYNCING") return "DELAYED";
-    if (age <= liveMax) return "LIVE";
-    if (age <= delayedMax) return "DELAYED";
-    return "STALE";
-  }, [status, updatedAt, now, source]);
+     Twelve Data is polled every 45s. The mapping lives in lib/feed-status so
+     it is unit-tested: STALE / ERROR / RECONNECTING can never read as LIVE. */
+  const freshness: DataFreshness = useMemo(
+    () => computeFreshness(status, updatedAt, now, source),
+    [status, updatedAt, now, source],
+  );
 
   useEffect(() => {
     const canonical = normalizeSymbol(symbolId);
