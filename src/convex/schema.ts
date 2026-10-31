@@ -131,6 +131,50 @@ const schema = defineSchema(
       notes: v.string(),
       createdAt: v.number(),
     }).index("userId", ["userId"]),
+
+    /* -----------------------------------------------------------------------
+       PAPER TRADING — simulation only. Never sends orders to any broker.
+       The account is denominated in INR; USD-quoted P&L is converted with the
+       account's user-configurable `usdInrRate` assumption (clearly labelled
+       in the UI — no live FX rate is invented).
+       ------------------------------------------------------------------------ */
+    paperAccounts: defineTable({
+      userId: v.id("users"),
+      balance: v.number(), // virtual balance in INR
+      startingBalance: v.number(), // INR — for return calculations
+      riskPercent: v.number(), // % of balance risked per trade
+      maxDailyLoss: v.number(), // INR hard cap on realized losses per UTC day; 0 = no cap
+      usdInrRate: v.number(), // user-set conversion assumption for USD-quoted P&L
+      createdAt: v.number(),
+    }).index("userId", ["userId"]),
+
+    paperTrades: defineTable({
+      userId: v.id("users"),
+      symbol: v.string(),
+      direction: v.union(v.literal("long"), v.literal("short")),
+      entry: v.number(),
+      size: v.number(), // units at the symbol's quote price
+      stopLoss: v.number(),
+      takeProfit: v.optional(v.number()),
+      status: v.union(v.literal("OPEN"), v.literal("CLOSED")),
+      riskInr: v.number(), // INR at risk when the trade was opened
+      exit: v.optional(v.number()),
+      closeReason: v.optional(
+        v.union(
+          v.literal("manual"),
+          v.literal("stop"),
+          v.literal("target"),
+        ),
+      ),
+      realizedPnlInr: v.optional(v.number()),
+      openedAt: v.number(),
+      closedAt: v.optional(v.number()),
+      // idempotency key so a double-tap can never create two identical trades
+      clientToken: v.optional(v.string()),
+    })
+      .index("userId", ["userId"])
+      .index("userId_status", ["userId", "status"])
+      .index("clientToken", ["clientToken"]),
   },
   {
     schemaValidation: false,

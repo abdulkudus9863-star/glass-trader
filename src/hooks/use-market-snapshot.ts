@@ -34,11 +34,13 @@ export interface TickerState {
 }
 
 export const WATCHLIST_IDS = [
-  "BTCUSDT",
+  // Core instruments, kept first: XAUUSD / BTCUSD / XAGUSD
+  "BTCUSD",
+  "XAUUSD",
+  "XAGUSD",
   "ETHUSDT",
   "SOLUSDT",
   "XRPUSDT",
-  "XAUUSD",
   "EURUSD",
   "GBPUSD",
   "SPX500",

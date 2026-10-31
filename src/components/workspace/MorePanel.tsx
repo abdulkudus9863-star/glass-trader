@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Calculator,
   CircleDollarSign,
+  FlaskConical,
   FunctionSquare,
   GraduationCap,
   KeyRound,
@@ -18,6 +19,7 @@ import Academy from "./Academy";
 import AdminPortal from "./AdminPortal";
 import CommunityChat from "./CommunityChat";
 import IndicatorLibrary from "./IndicatorLibrary";
+import PaperTrading from "./PaperTrading";
 import PositionCalculator from "./PositionCalculator";
 import TelegramSignals from "./TelegramSignals";
 import TokenStore from "./TokenStore";
@@ -25,6 +27,7 @@ import TradeJournal from "./TradeJournal";
 
 type SectionId =
   | "overview"
+  | "paper"
   | "admin"
   | "telegram"
   | "store"
@@ -52,7 +55,6 @@ interface MorePanelProps {
 }
 
 export default function MorePanel({
-  isAdmin,
   isFounder,
   tokens,
   onTopUp,
@@ -67,6 +69,14 @@ export default function MorePanel({
   const [section, setSection] = useState<SectionId>("overview");
 
   const allSections: Section[] = [
+    {
+      id: "paper",
+      label: "Paper Trading",
+      body: "Simulated INR account with live prices, risk limits and performance stats.",
+      icon: FlaskConical,
+      accent: "text-[#00F0FF] bg-[#00F0FF]/10 ring-[#00F0FF]/25",
+      badge: "SIM",
+    },
     {
       id: "admin",
       label: "Founder Admin Panel",
@@ -222,6 +232,7 @@ export default function MorePanel({
               exit={{ opacity: 0, y: -8 }}
               className="h-full"
             >
+              {section === "paper" && <PaperTrading />}
               {section === "admin" && <AdminPortal />}
               {section === "telegram" && <TelegramSignals />}
               {section === "store" && <TokenStore tokens={tokens} onTopUp={onTopUp} />}
