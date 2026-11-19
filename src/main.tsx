@@ -39,6 +39,7 @@ import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import OfflineBanner from "@/components/OfflineBanner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { GuestOnly } from "@/components/GuestOnly";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { StrategyProvider } from "./contexts/StrategyContext";
@@ -160,7 +161,14 @@ createRoot(document.getElementById("root")!).render(
           <Suspense fallback={<RouteLoading />}>
             <ErrorBoundary scope="Page">
               <Routes>
-              <Route path="/" element={<Landing />} />
+                              <Route
+                  path="/"
+                  element={
+                    <GuestOnly>
+                      <Landing />
+                    </GuestOnly>
+                  }
+                />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}

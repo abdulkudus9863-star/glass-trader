@@ -21,12 +21,16 @@ export interface CachedAuthUser {
   isFounder?: boolean;
   /** User role (e.g. 'admin') */
   role?: string;
+  /** Avatar image URL (https) chosen by the user */
+  image?: string;
+  /** Convex document creation time — used for "joined on" labels */
+  _creationTime?: number;
 }
 
 const AUTH_CACHE_KEY = "auth_user";
 const AUTH_SESSION_KEY = "auth_session_active";
 const CACHE_VERSION_KEY = "auth_cache_version";
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 /** Safe read – returns null on any error / private-browsing / missing key. */
 export function getCachedUser(): CachedAuthUser | null {

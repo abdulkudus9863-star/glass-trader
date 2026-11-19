@@ -6,10 +6,9 @@ import {
   FunctionSquare,
   KeyRound,
   LogOut,
-  UserPlus,
 } from "lucide-react";
 import { useNavigate } from "react-router";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -227,10 +226,18 @@ export default function AppHeader({
           )}
         </button>
 
-        {/* Profile badge or Register button */}
+        {/* Profile button → opens the Profile section in the More panel */}
         {isRegistered ? (
-          <div className="glass-chip hidden h-9 items-center gap-2 rounded-lg py-1 pl-1 pr-2 lg:flex">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-profile"))}
+            aria-label="Open profile"
+            className="glass-chip hidden h-9 items-center gap-2 rounded-lg py-1 pl-1 pr-2 text-left transition-colors hover:bg-white/5 lg:flex"
+          >
             <Avatar className="size-7">
+              {user?.image ? (
+                <AvatarImage src={user.image} alt={user.name ?? "Avatar"} />
+              ) : null}
               <AvatarFallback className="bg-gradient-to-br from-[#F4C430] to-yellow-600 text-[11px] font-bold text-[#0a0e1a]">
                 {initials}
               </AvatarFallback>
@@ -243,7 +250,7 @@ export default function AppHeader({
                 {isFounder ? "Founder / Super Admin" : isAdmin ? "Administrator" : "Verified Member"}
               </p>
             </div>
-          </div>
+          </button>
         ) : (
           <button
             type="button"

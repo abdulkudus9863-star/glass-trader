@@ -16,8 +16,9 @@ import {
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import { Bot } from "lucide-react";
+import { Bot, UserRound } from "lucide-react";
 import Academy from "./Academy";
+import Profile from "./Profile";
 import AdminPortal from "./AdminPortal";
 import AiEngineSettings from "./AiEngineSettings";
 import CommunityChat from "./CommunityChat";
@@ -30,6 +31,7 @@ import TradeJournal from "./TradeJournal";
 
 type SectionId =
   | "overview"
+  | "profile"
   | "paper"
   | "ai"
   | "admin"
@@ -62,15 +64,29 @@ export default function MorePanel({
   tokens,
   onReturnToCharts,
 }: MorePanelProps) {
-  // Listen for Access Denied → return to charts
-  useEffect(() => {
-    const handler = () => onReturnToCharts?.();
-    window.addEventListener("admin-denied", handler);
-    return () => window.removeEventListener("admin-denied", handler);
-  }, [onReturnToCharts]);
   const [section, setSection] = useState<SectionId>("overview");
 
+  // Listen for header actions: Access Denied → charts, avatar → profile
+  useEffect(() => {
+    const handler = () => onReturnToCharts?.();
+    const openProfile = () => setSection("profile");
+    window.addEventListener("admin-denied", handler);
+    window.addEventListener("open-profile", openProfile);
+    return () => {
+      window.removeEventListener("admin-denied", handler);
+      window.removeEventListener("open-profile", openProfile);
+    };
+  }, [onReturnToCharts]);
+
   const allSections: Section[] = [
+    {
+      id: "profile",
+      label: "My Profile",
+      body: "Account details, paper-trading overview, preferences and sign-out.",
+      icon: UserRound,
+      accent: "text-[#00F0FF] bg-[#00F0FF]/10 ring-[#00F0FF]/25",
+      badge: "ACCOUNT",
+    },
     {
       id: "paper",
       label: "Paper Trading",
@@ -247,6 +263,9 @@ export default function MorePanel({
                 <ErrorBoundary scope="Admin dashboard">
                   <AdminPortal />
                 </ErrorBoundary>
+              )}
+              {section === "profile" && (
+                <Profile onOpenPaper={() => setSection("paper")} />
               )}
               {section === "ai" && <AiEngineSettings />}
               {section === "telegram" && <TelegramSignals />}

@@ -155,6 +155,18 @@ const schema = defineSchema(
       createdAt: v.number(),
     }).index("userId", ["userId"]),
 
+    /* Per-user profile preferences (notifications + display theme).
+       Kept separate from the auth users table so authentication data is
+       never modified by profile edits. */
+    userPreferences: defineTable({
+      userId: v.id("users"),
+      notifySignals: v.boolean(),
+      notifyDaily: v.boolean(),
+      notifyProduct: v.boolean(),
+      theme: v.union(v.literal("dark"), v.literal("soft")),
+      updatedAt: v.number(),
+    }).index("userId", ["userId"]),
+
     // per-user trade journal (real backend persistence — only the trader's
     // own entries are ever stored; nothing is seeded or simulated)
     journalEntries: defineTable({
