@@ -111,7 +111,7 @@ export class FakeDb {
   /** Insert a fully-formed row (test seeding only). */
   seed(table: string, doc: Record<string, any>): string {
     this.seq += 1;
-    const _id = `${table}:${this.seq}`;
+    const _id = (doc._id as string | undefined) ?? `${table}:${this.seq}`;
     this.rows(table).push({
       ...doc,
       _id,
@@ -121,7 +121,12 @@ export class FakeDb {
   }
 
   query(table: string) {
+    const base = buildIndexApi(this.rows(table), []);
     return {
+      order: (dir: "asc" | "desc") => base.order(dir),
+      first: () => base.first(),
+      collect: () => base.collect(),
+      take: (n: number) => base.take(n),
       withIndex: (_name: string, fn?: (q: any) => any) => {
         const clauses: Clause[] = [];
         if (fn) {

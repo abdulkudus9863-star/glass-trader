@@ -36,6 +36,8 @@ if (typeof window !== "undefined") {
 }
 
 import { Toaster } from "@/components/ui/sonner";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import OfflineBanner from "@/components/OfflineBanner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
@@ -43,14 +45,13 @@ import { StrategyProvider } from "./contexts/StrategyContext";
 import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import "./index.css";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
-const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -154,9 +155,11 @@ createRoot(document.getElementById("root")!).render(
       <ConvexAuthProvider client={convex}>
         <StrategyProvider>
         <BrowserRouter>
+          <OfflineBanner />
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
-            <Routes>
+            <ErrorBoundary scope="Page">
+              <Routes>
               <Route path="/" element={<Landing />} />
               <Route
                 path="/auth"
@@ -184,8 +187,9 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </ErrorBoundary>
           </Suspense>
         </BrowserRouter>
         <Toaster />

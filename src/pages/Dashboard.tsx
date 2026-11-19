@@ -1,6 +1,5 @@
 import { AnimatePresence } from "framer-motion";
-import { Eye, EyeOff, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Sheet,
@@ -76,20 +75,16 @@ const MARKET_CHIP: Record<string, string> = {
 interface PaneCardProps {
   pane: PaneState;
   active: boolean;
-  chartType: ChartType;
   mode: ChartMode;
   indicatorList: string[];
-  founderBadge?: boolean;
   onActivate: () => void;
 }
 
 function PaneCard({
   pane,
   active,
-  chartType: _chartType,
   mode,
   indicatorList,
-  founderBadge = false,
   onActivate,
 }: PaneCardProps) {
   const sym = findSymbol(pane.symbolId) ?? findSymbol("BTCUSDT")!;
@@ -181,33 +176,46 @@ export default function Dashboard() {
   const [indicators, setIndicators] = useState<Set<string>>(
     () => new Set(["volume", "sma20"]),
   );
-  const { tokens, spend, topUp } = useTokens();
-  const { isRegistered, register } = useRegistration(topUp);
+  const { tokens, spend } = useTokens();
+  const { isRegistered, register } = useRegistration();
   const [regModalOpen, setRegModalOpen] = useState(false);
 
   /**
    * AI Analysis costs 5 tokens. Deduct on open; prevent open if insufficient.
    * Closing the panel is always free.
+   *
+   * Side effects never run inside a state updater: React may invoke updaters
+   * twice (StrictMode / concurrent rendering), which would double-spend.
+   * A ref guard makes a rapid double-click idempotent as well.
    */
   const AI_COST = 5;
+  const aiSpendPendingRef = useRef(false);
   const handleToggleAi = () => {
-    setAiOpen((prev) => {
-      if (prev) return false; // closing is free
-      // opening — check tokens
-      if (tokens < AI_COST) {
-        toast.error("Insufficient tokens. 5 tokens required to run AI Analysis.");
-        return false;
-      }
-      // deduct immediately (fire-and-forget — spend returns a promise)
-      void spend(AI_COST).then((ok) => {
+    if (aiOpen) {
+      setAiOpen(false);
+      return;
+    }
+    if (tokens < AI_COST) {
+      toast.error("Insufficient tokens. 5 tokens required to run AI Analysis.");
+      return;
+    }
+    if (aiSpendPendingRef.current) return;
+    aiSpendPendingRef.current = true;
+    setAiOpen(true);
+    void spend(AI_COST)
+      .then((ok) => {
         if (ok) {
           toast.success(`AI Analysis executed (-${AI_COST} tokens)`);
         } else {
-          toast.error("Insufficient tokens. 5 tokens required to run AI Analysis.");
+          setAiOpen(false);
+          toast.error(
+            "Insufficient tokens. 5 tokens required to run AI Analysis.",
+          );
         }
+      })
+      .finally(() => {
+        aiSpendPendingRef.current = false;
       });
-      return true;
-    });
   };
   const { canInstall, install } = usePwaInstall();
   const isMobile = useIsMobile();
@@ -215,9 +223,25 @@ export default function Dashboard() {
 
   const indicatorList = useMemo(() => [...indicators], [indicators]);
   const effectiveLayout = isMobile ? "1x1" : layout;
-  const visiblePanes =
-    effectiveLayout === "1x1" ? panes.slice(0, 1) : effectiveLayout === "2x1" ? panes.slice(0, 2) : panes;
-  const activePane = panes.find((p) => p.id === activeId) ?? panes[0];
+  /* Stable identity — a new array every render made the effect below re-run
+     on every keystroke/render and risked update loops. */
+  const visiblePanes = useMemo(
+    () =>
+      effectiveLayout === "1x1"
+        ? panes.slice(0, 1)
+        : effectiveLayout === "2x1"
+          ? panes.slice(0, 2)
+          : panes,
+    [effectiveLayout, panes],
+  );
+  /* Derived, not stored: if the layout shrinks below the selected pane, the
+     first visible pane becomes active without a state-syncing effect (no
+     cascading render, no update loop). */
+  const activePaneId = visiblePanes.some((p) => p.id === activeId)
+    ? activeId
+    : (visiblePanes[0]?.id ?? activeId);
+  const activePane =
+    panes.find((p) => p.id === activePaneId) ?? panes[0] ?? DEFAULT_PANES[0];
 
   /* DEEEPR Trade Intelligence — feeds the panel and the bottom drawer. */
   const activeLive = useKlines(activePane.symbolId, activePane.intervalId);
@@ -228,18 +252,11 @@ export default function Dashboard() {
     change24h: activeTicker?.change24h ?? null,
   });
 
-  /* keep the active pane within the visible layout */
-  useEffect(() => {
-    if (!visiblePanes.some((p) => p.id === activeId)) {
-      setActiveId(visiblePanes[0].id);
-    }
-  }, [layout, activeId, visiblePanes]);
-
   const updateActivePane = (
     patch: Partial<Pick<PaneState, "symbolId" | "intervalId">>,
   ) => {
     setPanes((prev) =>
-      prev.map((p) => (p.id === activeId ? { ...p, ...patch } : p)),
+      prev.map((p) => (p.id === activePaneId ? { ...p, ...patch } : p)),
     );
   };
 
@@ -352,11 +369,9 @@ export default function Dashboard() {
               <PaneCard
                 key={pane.id}
                 pane={pane}
-                active={pane.id === activeId}
-                chartType={chartType}
+                active={pane.id === activePaneId}
                 mode={chartMode}
                 indicatorList={indicatorList}
-                founderBadge={pane.id === activeId && isFounder}
                 onActivate={() => setActiveId(pane.id)}
               />
             ))}
@@ -444,7 +459,6 @@ export default function Dashboard() {
             isAdmin={isAdmin}
             isFounder={isFounder}
             tokens={tokens}
-            onTopUp={topUp}
             onReturnToCharts={() => setTab("charts")}
           />
         </div>

@@ -76,7 +76,39 @@ const schema = defineSchema(
     wallets: defineTable({
       userId: v.id("users"),
       balance: v.number(),
+      /** One-time welcome bonus already granted on this wallet. */
+      welcomeGranted: v.optional(v.boolean()),
+      updatedAt: v.optional(v.number()),
     }).index("userId", ["userId"]),
+
+    /* -----------------------------------------------------------------------
+       TOKEN LEDGER — append-only audit trail for every balance change.
+       Only server-side mutations may write here; users never touch it.
+       ------------------------------------------------------------------------ */
+    tokenTransactions: defineTable({
+      userId: v.id("users"),
+      userEmail: v.optional(v.string()),
+      previousBalance: v.number(),
+      delta: v.number(),
+      newBalance: v.number(),
+      kind: v.union(
+        v.literal("grant"),
+        v.literal("welcome"),
+        v.literal("spend"),
+        v.literal("credit"),
+        v.literal("debit"),
+      ),
+      description: v.string(),
+      /** Administrator who performed the change (absent for self-service rows). */
+      adminId: v.optional(v.id("users")),
+      adminEmail: v.optional(v.string()),
+      /** Idempotency key — a repeated submission can never double-credit. */
+      idemKey: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("userId", ["userId"])
+      .index("idemKey", ["idemKey"])
+      .index("createdAt", ["createdAt"]),
 
     // per-user strategy portfolio (real backend persistence)
     strategies: defineTable({
@@ -172,9 +204,9 @@ const schema = defineSchema(
       // idempotency key so a double-tap can never create two identical trades
       clientToken: v.optional(v.string()),
     })
-      .index("userId", ["userId"])
-      .index("userId_status", ["userId", "status"])
-      .index("clientToken", ["clientToken"]),
+          .index("userId", ["userId"])
+    .index("userId_status", ["userId", "status"])
+    .index("clientToken", ["clientToken"]),
   },
   {
     schemaValidation: false,

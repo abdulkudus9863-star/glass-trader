@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 const STORAGE_KEY = "akt_registered_user";
-const WELCOME_BONUS = 25;
 
 export interface RegisteredUser {
   name: string;
@@ -35,23 +34,15 @@ function readRegistration(): RegisteredUser | null {
  * Manages engine-access registration backed by localStorage.
  *
  * - Unregistered users see a "Register to Unlock AI Engine" gate.
- * - On first registration, 25 welcome tokens are credited via the
- *   `onWelcomeBonus` callback (the caller wires this to `topUp`).
+ * - Tokens are NOT credited here: the trial + welcome bonus are granted once
+ *   by the backend when the wallet is created (`wallet.claimTrial`), so this
+ *   client-side flag can never mint tokens by clearing storage.
  * - Registered state persists across reloads and mobile pauses.
  */
-export function useRegistration(onWelcomeBonus?: (amount: number) => void) {
+export function useRegistration() {
   const [user, setUser] = useState<RegisteredUser | null>(readRegistration);
-  const hasClaimedBonus = useRef(false);
 
   const isRegistered = user !== null;
-
-  // One-time welcome bonus on first registration
-  useEffect(() => {
-    if (user && onWelcomeBonus && !hasClaimedBonus.current) {
-      hasClaimedBonus.current = true;
-      onWelcomeBonus(WELCOME_BONUS);
-    }
-  }, [user, onWelcomeBonus]);
 
   const register = useCallback(
     (name: string, email: string, accessKey: string) => {
@@ -70,7 +61,6 @@ export function useRegistration(onWelcomeBonus?: (amount: number) => void) {
   const clearRegistration = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setUser(null);
-    hasClaimedBonus.current = false;
   }, []);
 
   return {

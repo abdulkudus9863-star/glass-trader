@@ -29,13 +29,12 @@ const PACKS: Pack[] = [
 
 interface TokenStoreProps {
   tokens: number;
-  onTopUp: (amount: number) => void | Promise<void>;
 }
 
-export default function TokenStore({ tokens, onTopUp }: TokenStoreProps) {
-  // Free token refills disabled — payment integration required to purchase.
-  // onTopUp is kept in the interface but intentionally not called:
-  // tokens can only be added via a verified payment flow (Stripe / checkout).
+export default function TokenStore({ tokens }: TokenStoreProps) {
+  // Users can never credit themselves: balances are server-authoritative and
+  // refills are issued by an administrator from the Admin Dashboard. Purchase
+  // packs stay disabled until a verified payment flow exists.
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
@@ -109,9 +108,10 @@ export default function TokenStore({ tokens, onTopUp }: TokenStoreProps) {
       <div className="mt-4 flex items-start gap-2 rounded-xl bg-white/[0.03] p-3.5">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-[#F4C430]" />
         <p className="text-xs leading-5 text-muted-foreground">
-          Purchases are simulated in this trial build — credits are applied to
-          your wallet instantly so you can test the strategy compiler end to
-          end. Real payment processing can be wired to any provider on demand.
+          Token balances are managed on the server. Refills are issued by an
+          administrator — contact support with your account email, and every
+          change appears in your token history. Self-service credits are
+          disabled by design so balances can never be forged.
         </p>
       </div>
     </div>

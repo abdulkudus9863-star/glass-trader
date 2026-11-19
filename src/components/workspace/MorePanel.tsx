@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import Academy from "./Academy";
 import AdminPortal from "./AdminPortal";
 import CommunityChat from "./CommunityChat";
@@ -50,14 +51,12 @@ interface MorePanelProps {
   isAdmin: boolean;
   isFounder: boolean;
   tokens: number;
-  onTopUp: (amount: number) => void;
   onReturnToCharts?: () => void;
 }
 
 export default function MorePanel({
   isFounder,
   tokens,
-  onTopUp,
   onReturnToCharts,
 }: MorePanelProps) {
   // Listen for Access Denied → return to charts
@@ -233,9 +232,13 @@ export default function MorePanel({
               className="h-full"
             >
               {section === "paper" && <PaperTrading />}
-              {section === "admin" && <AdminPortal />}
+              {section === "admin" && (
+                <ErrorBoundary scope="Admin dashboard">
+                  <AdminPortal />
+                </ErrorBoundary>
+              )}
               {section === "telegram" && <TelegramSignals />}
-              {section === "store" && <TokenStore tokens={tokens} onTopUp={onTopUp} />}
+              {section === "store" && <TokenStore tokens={tokens} />}
               {section === "library" && <IndicatorLibrary />}
               {section === "academy" && <Academy />}
               {section === "calculator" && <PositionCalculator />}
