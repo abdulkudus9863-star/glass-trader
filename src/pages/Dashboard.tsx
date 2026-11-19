@@ -480,6 +480,10 @@ export default function Dashboard() {
             isFounder={isFounder}
             tokens={tokens}
             onReturnToCharts={() => setTab("charts")}
+            activeSymbolId={activePane.symbolId}
+            activeIntervalId={activePane.intervalId}
+            onSymbolChange={(id) => updateActivePane({ symbolId: id })}
+            onIntervalChange={(id) => updateActivePane({ intervalId: id })}
           />
         </div>
       </div>

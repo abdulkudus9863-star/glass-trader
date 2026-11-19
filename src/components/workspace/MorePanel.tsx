@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import type { TimeframeId } from "@/lib/market";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { Bot, UserRound } from "lucide-react";
 import Academy from "./Academy";
@@ -57,12 +58,21 @@ interface MorePanelProps {
   isFounder: boolean;
   tokens: number;
   onReturnToCharts?: () => void;
+  /** Kept in sync with the dashboard's top symbol/timeframe selector. */
+  activeSymbolId?: string;
+  activeIntervalId?: TimeframeId;
+  onSymbolChange?: (symbolId: string) => void;
+  onIntervalChange?: (intervalId: TimeframeId) => void;
 }
 
 export default function MorePanel({
   isFounder,
   tokens,
   onReturnToCharts,
+  activeSymbolId,
+  activeIntervalId,
+  onSymbolChange,
+  onIntervalChange,
 }: MorePanelProps) {
   const [section, setSection] = useState<SectionId>("overview");
 
@@ -258,7 +268,14 @@ export default function MorePanel({
               exit={{ opacity: 0, y: -8 }}
               className="h-full"
             >
-              {section === "paper" && <PaperTrading />}
+              {section === "paper" && (
+                <PaperTrading
+                  activeSymbolId={activeSymbolId}
+                  activeIntervalId={activeIntervalId}
+                  onSymbolChange={onSymbolChange}
+                  onIntervalChange={onIntervalChange}
+                />
+              )}
               {section === "admin" && (
                 <ErrorBoundary scope="Admin dashboard">
                   <AdminPortal />

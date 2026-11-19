@@ -20,6 +20,10 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { paperPnlInr } from "@/lib/paper-pnl";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
+import { useKlines } from "@/hooks/use-klines";
+import type { TimeframeId } from "@/lib/market";
+import type { PaperTradeLike } from "@/lib/paper-chart";
+import PaperTradeChart from "./PaperTradeChart";
 
 /* ============================================================================
    PAPER TRADING — simulation panel.
@@ -32,12 +36,25 @@ import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
    which is labelled as an assumption.
    ========================================================================== */
 
-const FORM_SYMBOLS = ["XAUUSD", "XAGUSD", "BTCUSD", "EURUSD", "GBPUSD"] as const;
+const FORM_SYMBOLS = [
+  "XAUUSD",
+  "XAGUSD",
+  "BTCUSDT",
+  "BTCUSD",
+  "ETHUSDT",
+  "EURUSD",
+  "GBPUSD",
+] as const;
+
+const isFormSymbol = (id: string): boolean =>
+  (FORM_SYMBOLS as readonly string[]).includes(id);
 
 const SYMBOL_LABELS: Record<string, string> = {
   XAUUSD: "Gold · XAU/USD",
   XAGUSD: "Silver · XAG/USD",
+  BTCUSDT: "Bitcoin · BTC/USDT",
   BTCUSD: "Bitcoin · BTC/USD",
+  ETHUSDT: "Ethereum · ETH/USDT",
   EURUSD: "Euro · EUR/USD",
   GBPUSD: "Pound · GBP/USD",
 };
@@ -77,7 +94,20 @@ function Stat({
   );
 }
 
-export default function PaperTrading() {
+interface PaperTradingProps {
+  /** Instrument/timeframe from the top chart selector — kept in sync. */
+  activeSymbolId?: string;
+  activeIntervalId?: TimeframeId;
+  onSymbolChange?: (symbolId: string) => void;
+  onIntervalChange?: (intervalId: TimeframeId) => void;
+}
+
+export default function PaperTrading({
+  activeSymbolId,
+  activeIntervalId,
+  onSymbolChange,
+  onIntervalChange,
+}: PaperTradingProps = {}) {
   /* ------------------------------- data -------------------------------- */
   const account = useQuery(api.paper.account);
   const trades = useQuery(api.paper.listTrades);
@@ -144,7 +174,27 @@ export default function PaperTrading() {
   };
 
   /* ---------------------------- open a trade ---------------------------- */
-  const [symbol, setSymbol] = useState<string>("XAUUSD");
+  const [symbol, setSymbol] = useState<string>(
+    activeSymbolId && isFormSymbol(activeSymbolId) ? activeSymbolId : "XAUUSD",
+  );
+  const [intervalId, setIntervalId] = useState<TimeframeId>(
+    activeIntervalId ?? "15m",
+  );
+
+  // Follow the top selector when the user changes the pane instrument/timeframe
+  // (render-time sync keeps the form, chart and header in lockstep).
+  const [syncedSymbol, setSyncedSymbol] = useState<string | undefined>(activeSymbolId);
+  if (activeSymbolId !== syncedSymbol) {
+    setSyncedSymbol(activeSymbolId);
+    if (activeSymbolId && isFormSymbol(activeSymbolId)) setSymbol(activeSymbolId);
+  }
+  const [syncedInterval, setSyncedInterval] = useState<TimeframeId | undefined>(
+    activeIntervalId,
+  );
+  if (activeIntervalId !== syncedInterval) {
+    setSyncedInterval(activeIntervalId);
+    if (activeIntervalId) setIntervalId(activeIntervalId);
+  }
   const [direction, setDirection] = useState<"long" | "short">("long");
   const [entry, setEntry] = useState("");
   const [stop, setStop] = useState("");
@@ -156,6 +206,27 @@ export default function PaperTrading() {
   const resetToken = () => {
     tokenRef.current = null;
   };
+
+  /* Symbol/timeframe changes propagate to the dashboard's top selector, so the
+     form, chart and header can never show different instruments. */
+  const changeSymbol = (next: string) => {
+    setSymbol(next);
+    resetToken();
+    onSymbolChange?.(next);
+  };
+
+  const changeInterval = (next: TimeframeId) => {
+    setIntervalId(next);
+    onIntervalChange?.(next);
+  };
+
+
+  // If the top selector points at an instrument paper trading cannot store,
+  // pull the selector onto this page's instrument instead of disagreeing.
+  useEffect(() => {
+    if (!activeSymbolId || isFormSymbol(activeSymbolId)) return;
+    onSymbolChange?.(symbol);
+  }, [activeSymbolId, symbol, onSymbolChange]);
 
   const e = parseFloat(entry);
   const s = parseFloat(stop);
@@ -176,6 +247,21 @@ export default function PaperTrading() {
     validPrices && Number.isFinite(t) && t > 0 && riskPerUnit > 0
       ? Math.abs(t - e) / riskPerUnit
       : null;
+
+  /* Live preview of the unsaved form on the chart (direction/target update
+     immediately as the user types or flips LONG/SHORT). */
+  const chartPreview = useMemo(
+    () =>
+      validPrices && s !== e
+        ? {
+            direction,
+            entry: e,
+            stop: s,
+            target: Number.isFinite(t) && t > 0 ? t : undefined,
+          }
+        : null,
+    [validPrices, s, e, direction, t],
+  );
 
   const canSubmit =
     !!account &&
@@ -207,6 +293,7 @@ export default function PaperTrading() {
         toast.success(
           `${direction === "long" ? "LONG" : "SHORT"} ${symbol} recorded (simulation).`,
         );
+        setSelectedTradeId(res.trade._id);
         setEntry("");
         setStop("");
         setTarget("");
@@ -232,6 +319,55 @@ export default function PaperTrading() {
   );
 
   const markFor = (sym: string): number | null => marks[sym]?.price ?? null;
+
+  /* ------------------------------ chart data ---------------------------- */
+  const chartTrades: PaperTradeLike[] = useMemo(
+    () =>
+      (trades ?? []).map((t) => ({
+        _id: t._id,
+        symbol: t.symbol,
+        direction: t.direction,
+        entry: t.entry,
+        stopLoss: t.stopLoss,
+        takeProfit: t.takeProfit,
+        exit: t.exit,
+        status: t.status,
+        size: t.size,
+        realizedPnlInr: t.realizedPnlInr,
+        closedAt: t.closedAt,
+      })),
+    [trades],
+  );
+
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
+
+  /** Selected trade, defaulting to the newest record for the current symbol. */
+  const selectedTrade = useMemo(() => {
+    const chosen = chartTrades.find((t) => t._id === selectedTradeId);
+    if (chosen && chosen.symbol === symbol) return chosen;
+    return chartTrades.find((t) => t.symbol === symbol) ?? null;
+  }, [chartTrades, selectedTradeId, symbol]);
+
+  const klines = useKlines(symbol, intervalId);
+
+  const selectChartTrade = (id: string | null) => {
+    setSelectedTradeId(id);
+    if (!id) return;
+    const target = chartTrades.find((t) => t._id === id);
+    if (target && target.symbol !== symbol) changeSymbol(target.symbol);
+  };
+
+  const selectedMark = selectedTrade ? markFor(selectedTrade.symbol) : null;
+  const selectedPnlInr =
+    selectedTrade && selectedTrade.status === "OPEN" && selectedMark != null
+      ? paperPnlInr(
+          selectedTrade.direction,
+          selectedTrade.entry,
+          selectedMark,
+          selectedTrade.size,
+          rate,
+        )
+      : null;
 
   const [exitInputs, setExitInputs] = useState<Record<string, string>>({});
   const [closingId, setClosingId] = useState<string | null>(null);
@@ -360,6 +496,21 @@ export default function PaperTrading() {
           </p>
         </div>
       )}
+
+      {/* Integrated chart — the central visual of the page, above the form */}
+      <div id="paper-chart" className="mb-4 scroll-mt-4">
+        <PaperTradeChart
+          symbolId={symbol}
+          intervalId={intervalId}
+          onIntervalChange={changeInterval}
+          klines={klines}
+          trades={chartTrades}
+          selectedTradeId={selectedTrade?._id ?? null}
+          onSelectTrade={selectChartTrade}
+          selectedPnlInr={selectedPnlInr}
+          preview={chartPreview}
+        />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Risk settings */}
@@ -513,10 +664,7 @@ export default function PaperTrading() {
                 <select
                   id="pt-symbol"
                   value={symbol}
-                  onChange={(ev) => {
-                    setSymbol(ev.target.value);
-                    resetToken();
-                  }}
+                  onChange={(ev) => changeSymbol(ev.target.value)}
                   className="h-9 rounded-md border border-input bg-white/[0.03] px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 >
                   {FORM_SYMBOLS.map((s) => (
@@ -701,7 +849,8 @@ export default function PaperTrading() {
             </h3>
           </div>
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {openTrades.length} open · unrealized P&L uses live marks
+            {openTrades.length} open · unrealized P&L uses live marks · one exit per
+            position (partial exits are not modelled)
           </span>
         </div>
 
@@ -737,6 +886,18 @@ export default function PaperTrading() {
                       >
                         {t.direction.toUpperCase()}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectChartTrade(t._id);
+                          document
+                            .getElementById("paper-chart")
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                        className="ml-1.5 rounded border border-[#1B263B] px-1 py-px text-[9px] font-semibold text-slate-400 hover:text-[#F4C430]"
+                      >
+                        On chart
+                      </button>
                     </p>
                     <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
                       {num(t.entry, 2)} → SL {num(t.stopLoss, 2)}
@@ -852,7 +1013,21 @@ export default function PaperTrading() {
                     <td className="py-2 tabular-nums text-muted-foreground">
                       {new Date(t.closedAt ?? t._creationTime).toLocaleString()}
                     </td>
-                    <td className="py-2 font-semibold text-foreground">{t.symbol}</td>
+                    <td className="py-2 font-semibold text-foreground">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectChartTrade(t._id);
+                          document
+                            .getElementById("paper-chart")
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                        className="hover:text-[#F4C430]"
+                        title="Show entry and exit markers on the chart"
+                      >
+                        {t.symbol}
+                      </button>
+                    </td>
                     <td className="py-2">
                       <span
                         className={cn(
