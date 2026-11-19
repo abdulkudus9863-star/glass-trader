@@ -148,6 +148,10 @@ const schema = defineSchema(
       bullets: v.optional(v.array(v.string())),
       rr: v.optional(v.string()),
       model: v.optional(v.string()),
+      /** Instrument the answer was grounded on (never mixed across pairs). */
+      symbol: v.optional(v.string()),
+      /** Which engine answered: local, openai, gemini. */
+      provider: v.optional(v.string()),
       createdAt: v.number(),
     }).index("userId", ["userId"]),
 
@@ -204,9 +208,17 @@ const schema = defineSchema(
       // idempotency key so a double-tap can never create two identical trades
       clientToken: v.optional(v.string()),
     })
-          .index("userId", ["userId"])
-    .index("userId_status", ["userId", "status"])
-    .index("clientToken", ["clientToken"]),
+      .index("userId", ["userId"])
+      .index("userId_status", ["userId", "status"])
+      .index("clientToken", ["clientToken"]),
+
+    /* Audit trail for paper-account resets (never real user data). */
+    paperResets: defineTable({
+      userId: v.id("users"),
+      archivedTrades: v.number(),
+      previousBalance: v.number(),
+      at: v.number(),
+    }).index("userId", ["userId"]),
   },
   {
     schemaValidation: false,

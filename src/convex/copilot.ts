@@ -2,6 +2,20 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Which AI providers are configured on this deployment. Reports only a boolean
+ * per provider — API keys never leave the server. The local engine always
+ * exists because it runs deterministically on the client.
+ */
+export const aiStatus = query({
+  args: {},
+  handler: async () => ({
+    openai: Boolean(process.env.OPENAI_API_KEY),
+    gemini: Boolean(process.env.GEMINI_API_KEY),
+    local: true,
+  }),
+});
+
 /** The signed-in user's copilot history, oldest first. */
 export const listMessages = query({
   args: {},
@@ -28,6 +42,8 @@ export const saveMessage = mutation({
     bullets: v.optional(v.array(v.string())),
     rr: v.optional(v.string()),
     model: v.optional(v.string()),
+    symbol: v.optional(v.string()),
+    provider: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);

@@ -1,5 +1,6 @@
-import { useStrategy } from "@/contexts/StrategyContext";
+import { strategyMatchesChart, useStrategy } from "@/contexts/StrategyContext";
 import { cn } from "@/lib/utils";
+import type { TimeframeId } from "@/lib/market";
 
 interface PriceTagProps {
   label: string;
@@ -59,10 +60,24 @@ function PriceTag({ label, price, color, glowColor, top }: PriceTagProps) {
  * Does NOT touch the TradingView iframe — renders entirely as an HTML overlay
  * on top of it, with pointer-events-none so chart interaction is unaffected.
  */
-export default function StrategyPriceLines() {
+export default function StrategyPriceLines({
+  symbolId,
+  intervalId,
+}: {
+  symbolId?: string;
+  intervalId?: TimeframeId;
+}) {
   const { activeStrategy, showLines } = useStrategy();
 
-  if (!activeStrategy) return null;
+  /* Only ever show levels that belong to THIS chart's pair and timeframe.
+     A signal generated on another pair is an old signal, not a current one. */
+  if (
+    !activeStrategy ||
+    (symbolId != null &&
+      !strategyMatchesChart(activeStrategy, symbolId, intervalId ?? ""))
+  ) {
+    return null;
+  }
 
   // Collect all levels to render, sorted by price descending (top = highest)
   const levels: {

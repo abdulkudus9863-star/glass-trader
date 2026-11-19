@@ -307,7 +307,14 @@ export function analyzeSmc(opts: AnalyzeSmcOptions): SmcAnalysis | null {
 
   const avgEntry = (entryZone[0] + entryZone[1]) / 2;
   const risk = Math.abs(avgEntry - stopLoss);
-  const rrr = risk > 0 ? Math.round(((tp1 - avgEntry) / risk) * 10) / 10 : 1;
+  /* Distance ratio: |TP1 − entry| / |entry − stop|. Using the magnitude keeps
+     this non-negative for long, short AND wait setups (a WAIT entry band can
+     sit above price, which previously produced a negative / "-0" R:R). */
+  const reward = Math.abs(tp1 - avgEntry);
+  const rrr =
+    risk > 0 && Number.isFinite(reward)
+      ? Math.max(0.1, Math.round((reward / risk) * 10) / 10)
+      : 1;
 
   /* --------------------------- panel content ---------------------------- */
 

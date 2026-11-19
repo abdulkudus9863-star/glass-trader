@@ -109,8 +109,12 @@ export default function ChartCanvas({
         />
       )}
 
-      {/* Visual Levels HUD — glowing price tags on the right side of the chart */}
-      <StrategyPriceLines />
+      {/* TradingView mode can't receive native drawings (cross-origin iframe),
+         so the lightweight HUD is only used there. The Lightweight mode draws
+         its own chart-native price lines and risk/reward box. */}
+      {mode === "tradingview" && (
+        <StrategyPriceLines symbolId={symbolId} intervalId={intervalId} />
+      )}
 
       {/* Founder Portal watermark badge (top-left of the chart area) */}
       <div className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-full border border-[#F4C430]/35 bg-[#0b101b]/75 px-2.5 py-1 backdrop-blur-sm">

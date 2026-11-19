@@ -16,8 +16,10 @@ import {
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { Bot } from "lucide-react";
 import Academy from "./Academy";
 import AdminPortal from "./AdminPortal";
+import AiEngineSettings from "./AiEngineSettings";
 import CommunityChat from "./CommunityChat";
 import IndicatorLibrary from "./IndicatorLibrary";
 import PaperTrading from "./PaperTrading";
@@ -29,6 +31,7 @@ import TradeJournal from "./TradeJournal";
 type SectionId =
   | "overview"
   | "paper"
+  | "ai"
   | "admin"
   | "telegram"
   | "store"
@@ -75,6 +78,14 @@ export default function MorePanel({
       icon: FlaskConical,
       accent: "text-[#00F0FF] bg-[#00F0FF]/10 ring-[#00F0FF]/25",
       badge: "SIM",
+    },
+    {
+      id: "ai",
+      label: "AI Engine",
+      body: "Choose Local Engine, OpenAI (ChatGPT) or Google Gemini for the Copilot.",
+      icon: Bot,
+      accent: "text-[#A855F7] bg-[#A855F7]/10 ring-[#A855F7]/25",
+      badge: "PROVIDER",
     },
     {
       id: "admin",
@@ -237,6 +248,7 @@ export default function MorePanel({
                   <AdminPortal />
                 </ErrorBoundary>
               )}
+              {section === "ai" && <AiEngineSettings />}
               {section === "telegram" && <TelegramSignals />}
               {section === "store" && <TokenStore tokens={tokens} />}
               {section === "library" && <IndicatorLibrary />}

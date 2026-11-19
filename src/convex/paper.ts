@@ -400,6 +400,43 @@ export const closeTrade = mutation({
   },
 });
 
+/**
+ * Reset the caller's paper account.
+ *
+ * Scope guarantees:
+ *  - only rows whose `userId` is the authenticated caller are touched
+ *  - the token wallet, user record and every other feature are untouched
+ *  - an audit row is written to `paperResets` (who/when/how much/was removed)
+ *  - an explicit `confirm: "RESET"` argument is required server-side
+ */
+export const resetAccount = mutation({
+  args: { confirm: v.literal("RESET") },
+  handler: async (ctx, { confirm }) => {
+    const userId = await requireUserId(ctx);
+    if (confirm !== "RESET") {
+      throw new Error('Confirmation required: pass confirm: "RESET".');
+    }
+    const account = await getAccount(ctx, userId);
+    const trades = await ctx.db
+      .query("paperTrades")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .take(1000);
+    for (const t of trades) {
+      await ctx.db.delete(t._id);
+    }
+    if (account) {
+      await ctx.db.delete(account._id);
+    }
+    await ctx.db.insert("paperResets", {
+      userId,
+      archivedTrades: trades.length,
+      previousBalance: account?.balance ?? 0,
+      at: Date.now(),
+    });
+    return { reset: true, removedTrades: trades.length };
+  },
+});
+
 /** Discard an open (or closed) trade without affecting the balance. */
 export const deleteTrade = mutation({
   args: { tradeId: v.id("paperTrades") },

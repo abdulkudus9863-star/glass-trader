@@ -4,38 +4,198 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
- * Real AI engine for the academy.
+ * AI providers for the academy copilot.
  *
- * Both actions call the OpenAI Chat Completions API from a Convex node
- * action, reading the API key from the deployment environment
- * (`OPENAI_API_KEY`). When the key is missing or the call fails, the
- * actions return `{ ok: false }` and the client falls back to the built-in
- * deterministic engine, so the app always works.
+ *   openai  → official Responses API, key read from OPENAI_API_KEY
+ *   gemini  → Google Generative Language API, key read from GEMINI_API_KEY
+ *   local   → deterministic SMC engine (handled client-side, no API call)
+ *
+ * Keys live only in the deployment environment. Every failure is returned as
+ * `{ ok: false, error, code }` — the app never silently substitutes another
+ * provider, and never pretends the local engine is a hosted model.
  */
 
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const MODEL = "gpt-4o-mini";
+const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const OPENAI_MODEL = "gpt-4o-mini";
+const GEMINI_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-async function complete(
+export type AiFailureCode =
+  | "NOT_CONFIGURED"
+  | "AUTH"
+  | "RATE_LIMIT"
+  | "PROVIDER_ERROR"
+  | "EMPTY_RESPONSE"
+  | "PARSE_ERROR";
+
+interface Failure {
+  ok: false;
+  error: string;
+  code: AiFailureCode;
+}
+
+function fail(code: AiFailureCode, error: string): Failure {
+  return { ok: false, code, error };
+}
+
+function httpFailure(status: number, provider: string): Failure {
+  if (status === 401 || status === 403) {
+    return fail("AUTH", `${provider} rejected the API key (HTTP ${status}).`);
+  }
+  if (status === 429) {
+    return fail(
+      "RATE_LIMIT",
+      `${provider} rate limit reached (HTTP 429). Wait a moment and retry.`,
+    );
+  }
+  return fail("PROVIDER_ERROR", `${provider} returned HTTP ${status}.`);
+}
+
+/* ------------------------------ OpenAI ------------------------------ */
+
+async function callOpenAI(
+  messages: ChatMessage[],
+  json: boolean,
+  maxTokens = 900,
+): Promise<{ ok: true; text: string; model: string } | Failure> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    return fail(
+      "NOT_CONFIGURED",
+      "OPENAI_API_KEY is not configured on the server. Add it in the project keys, or switch the engine to Local.",
+    );
+  }
+
+  const system = messages.filter((m) => m.role === "system");
+  const rest = messages.filter((m) => m.role !== "system");
+
+  try {
+    const res = await fetch(OPENAI_RESPONSES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        instructions: system.map((m) => m.content).join("\n\n"),
+        input: rest.map((m) => ({ role: m.role, content: m.content })),
+        max_output_tokens: maxTokens,
+        temperature: 0.3,
+        ...(json ? { text: { format: { type: "json_object" } } } : {}),
+      }),
+    });
+
+    if (!res.ok) return httpFailure(res.status, "OpenAI");
+
+    const body = (await res.json()) as {
+      output_text?: string;
+      output?: {
+        content?: { type?: string; text?: string }[];
+      }[];
+    };
+
+    /* Responses API: prefer output_text, otherwise walk the output items. */
+    let text = typeof body.output_text === "string" ? body.output_text : "";
+    if (!text && Array.isArray(body.output)) {
+      text = body.output
+        .flatMap((item) => item.content ?? [])
+        .map((part) => (typeof part.text === "string" ? part.text : ""))
+        .join("");
+    }
+    if (!text.trim()) {
+      return fail("EMPTY_RESPONSE", "OpenAI returned an empty response.");
+    }
+    return { ok: true, text, model: OPENAI_MODEL };
+  } catch (err) {
+    return fail(
+      "PROVIDER_ERROR",
+      `OpenAI request failed: ${err instanceof Error ? err.message : "network error"}.`,
+    );
+  }
+}
+
+/* ------------------------------ Gemini ------------------------------ */
+
+async function callGemini(
+  messages: ChatMessage[],
+  json: boolean,
+): Promise<{ ok: true; text: string; model: string } | Failure> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return fail(
+      "NOT_CONFIGURED",
+      "GEMINI_API_KEY is not configured on the server. Add it in the project keys, or switch the engine to Local.",
+    );
+  }
+  const system = messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n\n");
+  const contents = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+  const model = "gemini-2.0-flash";
+
+  try {
+    const res = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+        contents,
+        generationConfig: {
+          temperature: 0.3,
+          ...(json ? { responseMimeType: "application/json" } : {}),
+        },
+      }),
+    });
+    if (!res.ok) return httpFailure(res.status, "Gemini");
+    const body = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text =
+      body.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text ?? "")
+        .join("") ?? "";
+    if (!text.trim()) {
+      return fail("EMPTY_RESPONSE", "Gemini returned an empty response.");
+    }
+    return { ok: true, text, model };
+  } catch (err) {
+    return fail(
+      "PROVIDER_ERROR",
+      `Gemini request failed: ${err instanceof Error ? err.message : "network error"}.`,
+    );
+  }
+}
+
+/* ------------------------- strategy compiler ------------------------ */
+
+async function completeChat(
   messages: ChatMessage[],
   json: boolean,
   maxTokens = 800,
 ): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY not configured");
-  const res = await fetch(OPENAI_URL, {
+  const res = await fetch(OPENAI_CHAT_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: OPENAI_MODEL,
       messages,
       temperature: 0.4,
       max_tokens: maxTokens,
@@ -51,16 +211,50 @@ async function complete(
   return content;
 }
 
+function parseJsonLoose(text: string): Record<string, unknown> | null {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 /* ------------------------------ copilot ------------------------------ */
 
 export const copilotReply = action({
   args: {
+    provider: v.union(
+      v.literal("openai"),
+      v.literal("gemini"),
+      v.literal("local"),
+    ),
     symbolId: v.string(),
+    timeframe: v.optional(v.string()),
+    /** Timestamp (ms) of the newest data point used. */
+    dataTime: v.optional(v.number()),
     price: v.number(),
     change24h: v.number(),
     prompt: v.string(),
     snapshot: v.optional(
       v.object({
+        symbol: v.optional(v.string()),
         rsi: v.optional(v.number()),
         regime: v.optional(v.string()),
         verdict: v.optional(
@@ -81,71 +275,97 @@ export const copilotReply = action({
       }),
     ),
   },
-  handler: async (_ctx, { symbolId, price, change24h, prompt, snapshot, history }) => {
+  handler: async (
+    _ctx,
+    {
+      provider,
+      symbolId,
+      timeframe,
+      dataTime,
+      price,
+      change24h,
+      prompt,
+      snapshot,
+      history,
+    },
+  ) => {
+    if (provider === "local") {
+      return fail(
+        "NOT_CONFIGURED",
+        "The local engine runs on the client and needs no API call.",
+      );
+    }
+
+    const tf = timeframe ?? "15m";
+    const stamp =
+      dataTime != null ? new Date(dataTime).toISOString() : "timestamp unknown";
     const snapshotBlock = snapshot
-      ? `Deterministic SMC snapshot computed from the live tape: ${JSON.stringify(
+      ? `Deterministic SMC snapshot for ${symbolId} ${tf} (ground truth, do not change): ${JSON.stringify(
           snapshot,
-        )}. These numbers are ground truth — you MUST NOT invent, modify or contradict them. Interpret the confluence and conflicts they imply, explain the structure, and keep your verdict consistent with the snapshot verdict (downgrade to WAIT only if the snapshot is missing or you find a strong reason). Reference the snapshot numbers directly in your bullets.`
-      : `No deterministic snapshot was provided — do NOT invent RSI, levels, or a directional read. If you cannot answer from the live price alone, say so honestly and default to WAIT.`;
+        )}. Stay on ${symbolId}; never analyse or quote another instrument's levels.`
+      : `No deterministic snapshot is available for ${symbolId}. Do NOT invent RSI, support/resistance, entry, stop or targets. Say the data is unavailable and default to WAIT.`;
 
     const system = [
-      `You are the Ak Analyser trading copilot inside the Abdul Kudus Trading Academy terminal.`,
-      `You are anchored to the LIVE tape: ${symbolId} at ${price.toLocaleString(
-        "en-US",
-      )} with a 24h change of ${change24h >= 0 ? "+" : ""}${change24h.toFixed(2)}%.`,
-      `Never quote stale or invented levels. Evaluate the question using the live price, volatility implied by the 24h move, and sound SMC / price-action reasoning.`,
+      `You are the Ak Analyser copilot for the Abdul Kudus Trading Academy.`,
+      `The instrument for THIS answer is fixed: ${symbolId} on the ${tf} timeframe, last price ${price} with 24h change ${change24h.toFixed(2)}% (data timestamp ${stamp}).`,
+      `If the user's message names a different instrument, the client has already re-routed the request — never switch instrument yourself and never mix levels from another market.`,
       snapshotBlock,
-      `Reply in strict JSON with exactly this shape:`,
-      `{"verdict":"LONG","rr":"1:2.4","summary":"one or two sentences","bullets":["3 to 5 short data-backed points"]}`,
-      `verdict must be one of LONG, SHORT, WAIT. rr is a risk/reward string. summary is a single concise verdict statement. Every bullet must reference the live price data and the snapshot numbers where available.`,
+      `Respond in strict JSON only: {"verdict":"LONG|SHORT|WAIT","rr":"1:2.4","summary":"one or two sentences naming the symbol","bullets":["3-6 short data-backed points"]}.`,
+      `Cover: data timestamp, trend, indicators, bullish and bearish scenarios, entry zone if supported, stop-loss, take-profit, risk/reward. Use WAIT when confirmation is missing. Never claim certainty or fabricate prices.`,
     ].join(" ");
 
-    const userMessage = `Live ${symbolId} tape: price ${price.toLocaleString(
-      "en-US",
-    )}, 24h ${change24h >= 0 ? "+" : ""}${change24h.toFixed(2)}%. Question: ${prompt}`;
+    const userMessage = `Question: ${prompt}`;
+    const messages: ChatMessage[] = [
+      { role: "system", content: system },
+      ...history.slice(-8).map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+      { role: "user", content: userMessage },
+    ];
 
-    try {
-      const content = await complete(
-        [
-          { role: "system", content: system },
-          ...history.slice(-8).map((m) => ({
-            role: m.role as "user" | "assistant",
-            content: m.content,
-          })),
-          { role: "user", content: userMessage },
-        ],
-        true,
+    const result =
+      provider === "openai"
+        ? await callOpenAI(messages, true)
+        : await callGemini(messages, true);
+
+    if (!result.ok) return result;
+
+    const parsed = parseJsonLoose(result.text);
+    if (!parsed) {
+      return fail(
+        "PARSE_ERROR",
+        `${provider === "openai" ? "OpenAI" : "Gemini"} returned a response that was not valid JSON. Retry, or switch engine in AI settings.`,
       );
-      const parsed = JSON.parse(content) as {
-        verdict?: string;
-        rr?: string;
-        summary?: string;
-        bullets?: unknown;
-      };
-      const verdict =
-        parsed.verdict === "LONG" || parsed.verdict === "SHORT" || parsed.verdict === "WAIT"
-          ? parsed.verdict
-          : "WAIT";
-      return {
-        ok: true as const,
-        model: MODEL,
-        verdict,
-        rr: typeof parsed.rr === "string" ? parsed.rr : "1:1",
-        summary:
-          typeof parsed.summary === "string"
-            ? parsed.summary
-            : `${verdict} read on ${symbolId} at ${price.toLocaleString("en-US")}.`,
-        bullets: Array.isArray(parsed.bullets)
-          ? parsed.bullets.filter((b): b is string => typeof b === "string").slice(0, 6)
-          : [],
-      };
-    } catch {
-      return { ok: false as const };
     }
+
+    const rawVerdict = parsed.verdict;
+    const verdict =
+      rawVerdict === "LONG" || rawVerdict === "SHORT" || rawVerdict === "WAIT"
+        ? rawVerdict
+        : "WAIT";
+    const bullets = Array.isArray(parsed.bullets)
+      ? parsed.bullets
+          .filter((b): b is string => typeof b === "string")
+          .slice(0, 6)
+      : [];
+
+    return {
+      ok: true as const,
+      provider,
+      model: result.model,
+      symbol: symbolId,
+      verdict,
+      rr:
+        typeof parsed.rr === "string" ? parsed.rr : snapshot?.rrr != null ? `1:${snapshot.rrr}` : "—",
+      summary:
+        typeof parsed.summary === "string" && parsed.summary.trim()
+          ? parsed.summary
+          : `${verdict} read on ${symbolId}.`,
+      bullets,
+    };
   },
 });
-
-/* --------------------------- strategy compiler --------------------------- */
 
 export const compileStrategySpec = action({
   args: {
@@ -167,7 +387,7 @@ export const compileStrategySpec = action({
     ].join(" ");
 
     try {
-      const content = await complete(
+      const content = await completeChat(
         [
           { role: "system", content: system },
           { role: "user", content: prompt },
@@ -176,7 +396,7 @@ export const compileStrategySpec = action({
         900,
       );
       const parsed = JSON.parse(content) as Record<string, unknown>;
-      return { ok: true as const, model: MODEL, parsed };
+      return { ok: true as const, model: OPENAI_MODEL, parsed };
     } catch {
       return { ok: false as const };
     }

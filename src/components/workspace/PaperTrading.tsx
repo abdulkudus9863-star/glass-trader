@@ -89,6 +89,9 @@ export default function PaperTrading() {
   const openTrade = useMutation(api.paper.openTrade);
   const closeTrade = useMutation(api.paper.closeTrade);
   const deleteTrade = useMutation(api.paper.deleteTrade);
+  const resetAccount = useMutation(api.paper.resetAccount);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const marks = useMarketSnapshot(FORM_SYMBOLS as unknown as string[]);
 
@@ -435,6 +438,61 @@ export default function PaperTrading() {
               "Save risk settings"
             )}
           </Button>
+
+          {/* Reset — destructive, explicitly confirmed, audited server-side */}
+          <div className="mt-4 border-t border-[#1B263B] pt-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#FF1744]">
+              Reset paper account
+            </p>
+            <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+              Deletes this account&apos;s simulated trades and restores the
+              starting balance. Your login, token wallet and real data are never
+              touched, and the reset is recorded in an audit log.
+            </p>
+            {!resetConfirmOpen ? (
+              <button
+                type="button"
+                onClick={() => setResetConfirmOpen(true)}
+                className="mt-2 h-8 w-full rounded-lg border border-[#FF1744]/30 bg-[#FF1744]/10 text-[11px] font-bold text-[#FF1744] hover:bg-[#FF1744]/20"
+              >
+                Reset simulated account…
+              </button>
+            ) : (
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={resetting}
+                  onClick={() => setResetConfirmOpen(false)}
+                  className="h-8 flex-1 rounded-lg border border-[#1B263B] text-[11px] font-semibold text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={resetting}
+                  onClick={async () => {
+                    setResetting(true);
+                    try {
+                      const res = await resetAccount({ confirm: "RESET" });
+                      toast.success(
+                        `Paper account reset — ${res.removedTrades} trade${res.removedTrades === 1 ? "" : "s"} removed.`,
+                      );
+                      setResetConfirmOpen(false);
+                    } catch (err) {
+                      toast.error(
+                        err instanceof Error ? err.message : "Reset failed.",
+                      );
+                    } finally {
+                      setResetting(false);
+                    }
+                  }}
+                  className="h-8 flex-1 rounded-lg bg-[#FF1744] text-[11px] font-bold text-white disabled:opacity-50"
+                >
+                  {resetting ? "Resetting…" : "Confirm reset"}
+                </button>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* New position */}

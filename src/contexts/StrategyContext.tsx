@@ -9,6 +9,28 @@ export interface AISignals {
   tp1?: number;
   tp2?: number;
   tp3?: number;
+  tp4?: number;
+  /** Provenance — the exact instrument/timeframe the signal was generated on. */
+  asset?: string;
+  timeframe?: string;
+  rr?: number;
+  generatedAt?: number;
+}
+
+/**
+ * A strategy signal is only valid for the instrument and timeframe it was
+ * generated on. Anything else must be treated as an old signal (hidden), not
+ * as a current one.
+ */
+export function strategyMatchesChart(
+  strategy: AISignals | null,
+  symbolId: string,
+  intervalId: string,
+): boolean {
+  if (!strategy) return false;
+  if (strategy.asset && strategy.asset !== symbolId) return false;
+  if (strategy.timeframe && strategy.timeframe !== intervalId) return false;
+  return true;
 }
 
 const STORAGE_KEY = 'active_ai_strategy';

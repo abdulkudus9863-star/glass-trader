@@ -9,9 +9,8 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ChartCanvas from "@/components/chart/ChartCanvas";
-import StrategyOverlay from "@/components/chart/StrategyOverlay";
 import TradeIntelligence from "@/components/chart/TradeIntelligence";
-import { useStrategy } from "@/contexts/StrategyContext";
+import { strategyMatchesChart, useStrategy } from "@/contexts/StrategyContext";
 import {
   loadChartMode,
   saveChartMode,
@@ -327,23 +326,45 @@ export default function Dashboard() {
             tab !== "charts" && "hidden",
           )}
         >
-          {/* Active strategy status bar */}
+          {/* Active strategy status bar — never presents an old pair's signal
+             as current: mismatched signals are flagged and hidden from the chart. */}
           {activeStrategy && (
-            <div className="flex shrink-0 items-center justify-between border-b border-gray-800 bg-[#1e222d] px-4 py-1.5 text-xs font-mono text-gray-300">
-              <div className="flex items-center space-x-2">
-                <span className="inline-block size-2 animate-pulse rounded-full bg-yellow-500" />
-                <span className="font-semibold text-yellow-400">
-                  [Active: {activeStrategy.title}]
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-800 bg-[#1e222d] px-2 py-1.5 font-mono text-[10px] text-gray-300 sm:px-4 sm:text-xs">
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className={cn(
+                    "inline-block size-2 shrink-0 rounded-full",
+                    strategyMatchesChart(
+                      activeStrategy,
+                      activePane.symbolId,
+                      activePane.intervalId,
+                    )
+                      ? "animate-pulse bg-yellow-500"
+                      : "bg-slate-500",
+                  )}
+                />
+                <span className="truncate font-semibold text-yellow-400">
+                  [{strategyMatchesChart(activeStrategy, activePane.symbolId, activePane.intervalId) ? "Active" : "Old signal"}: {activeStrategy.title}]
                 </span>
-                <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-xs font-bold text-red-400">
+                <span className="shrink-0 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-400">
                   {activeStrategy.signalType}
                 </span>
+                {!strategyMatchesChart(
+                  activeStrategy,
+                  activePane.symbolId,
+                  activePane.intervalId,
+                ) && (
+                  <span className="hidden truncate text-[10px] text-slate-400 sm:inline">
+                    generated on {activeStrategy.asset ?? "another pair"}{" "}
+                    {activeStrategy.timeframe ?? ""} — not drawn here
+                  </span>
+                )}
               </div>
-              <div className="flex items-center space-x-3">
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={toggleLines}
-                  className="text-gray-400 transition-colors hover:text-white"
+                  className="hidden text-gray-400 transition-colors hover:text-white sm:inline"
                 >
                   {showLines ? "\uD83D\uDC41\uFE0F Hide Lines" : "\uD83D\uDE48 Show Lines"}
                 </button>
@@ -375,7 +396,6 @@ export default function Dashboard() {
                 onActivate={() => setActiveId(pane.id)}
               />
             ))}
-            <StrategyOverlay />
           </main>
           </div>
 

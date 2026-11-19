@@ -273,6 +273,9 @@ function VerdictPanel({ analysis, symbolId, intervalId, decimals, isRegistered, 
                   tp1: analysis.targets.tp1,
                   tp2: analysis.targets.tp2,
                   tp3: analysis.targets.tp3,
+                  asset: symbolId,
+                  timeframe: intervalId,
+                  generatedAt: Date.now(),
                 });
               }}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
@@ -420,7 +423,6 @@ export default function TradeIntelligence({
 }: TradeIntelligenceProps) {
   const sym = findSymbol(symbolId) ?? findSymbol("BTCUSDT")!;
   const { analysis, dataStatus } = deeepr;
-  const { setStrategy } = useStrategy();
 
   const statusChip = useMemo(() => {
     if (dataStatus === "LIVE")

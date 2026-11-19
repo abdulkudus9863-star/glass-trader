@@ -485,6 +485,10 @@ export default function SmcAnalysisDrawer({
                               stopLoss: analysis.signal.stopLoss,
                               tp1: analysis.signal.tp1,
                               tp2: analysis.signal.tp2,
+                              asset: symbolId,
+                              timeframe: intervalId,
+                              rr: analysis.signal.rrr,
+                              generatedAt: Date.now(),
                             });
                           }}
                           className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#F4C430]/40 bg-[#F4C430]/10 px-4 py-2.5 text-xs font-bold text-[#F4C430] transition-all hover:bg-[#F4C430]/20 hover:shadow-md hover:shadow-[#F4C430]/10"
