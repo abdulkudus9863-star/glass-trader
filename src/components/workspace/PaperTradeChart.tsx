@@ -80,6 +80,8 @@ export default function PaperTradeChart({
   /** Only auto-fit when the view changes, so live ticks never reset zoom/pan. */
   const fitKeyRef = useRef("");
   const [toggles, setToggles] = useState<OverlayToggles>(DEFAULT_OVERLAY_TOGGLES);
+  /** Set when the chart engine itself cannot initialise in this browser. */
+  const [chartError, setChartError] = useState<string | null>(null);
 
   const sym = useMemo(() => findSymbol(symbolId), [symbolId]);
   const decimals = sym?.decimals ?? 2;
@@ -96,7 +98,9 @@ export default function PaperTradeChart({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const chart = createChart(el, {
+    let chart: IChartApi;
+    try {
+      chart = createChart(el, {
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: "#0b101b" },
@@ -124,13 +128,26 @@ export default function PaperTradeChart({
           labelBackgroundColor: "#F4C430",
         },
       },
-      rightPriceScale: { borderColor: "#1B263B", scaleMargins: { top: 0.1, bottom: 0.22 } },
-      timeScale: {
-        borderColor: "#1B263B",
-        timeVisible: true,
-        secondsVisible: false,
-      },
-    });
+        rightPriceScale: {
+          borderColor: "#1B263B",
+          scaleMargins: { top: 0.1, bottom: 0.22 },
+        },
+        timeScale: {
+          borderColor: "#1B263B",
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "Chart engine failed to start in this browser.";
+      // Deferred so the failure surfaces without a synchronous state update
+      // inside the effect body.
+      window.setTimeout(() => setChartError(message), 0);
+      return;
+    }
     chartRef.current = chart;
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -210,15 +227,21 @@ export default function PaperTradeChart({
     const series = seriesRef.current;
     if (!chart || !series) return;
 
-    for (const line of linesRef.current) series.removePriceLine(line);
-    linesRef.current = [];
+    try {
+      for (const line of linesRef.current) series.removePriceLine(line);
+      linesRef.current = [];
 
-    if (boxRef.current) {
-      try {
-        series.detachPrimitive(boxRef.current);
-      } catch {
-        /* already detached */
+      if (boxRef.current) {
+        try {
+          series.detachPrimitive(boxRef.current);
+        } catch {
+          /* already detached */
+        }
+        boxRef.current = null;
       }
+    } catch {
+      // A stale chart instance (e.g. after a hot remount) — nothing to clear.
+      linesRef.current = [];
       boxRef.current = null;
     }
 
@@ -234,23 +257,27 @@ export default function PaperTradeChart({
       return;
     }
 
-    for (const l of spec.lines) {
-      linesRef.current.push(
-        series.createPriceLine({
-          price: l.price,
-          color: l.color,
-          lineWidth: 1,
-          lineStyle: l.dashed ? 2 : 0,
-          axisLabelVisible: true,
-          title: l.title,
-        }),
-      );
-    }
+    try {
+      for (const l of spec.lines) {
+        linesRef.current.push(
+          series.createPriceLine({
+            price: l.price,
+            color: l.color,
+            lineWidth: 1,
+            lineStyle: l.dashed ? 2 : 0,
+            axisLabelVisible: true,
+            title: l.title,
+          }),
+        );
+      }
 
-    if (spec.box) {
-      const box = new RiskRewardBoxPrimitive(series, spec.box);
-      series.attachPrimitive(box);
-      boxRef.current = box;
+      if (spec.box) {
+        const box = new RiskRewardBoxPrimitive(series, spec.box);
+        series.attachPrimitive(box);
+        boxRef.current = box;
+      }
+    } catch {
+      // Drawing failure must never blank the page — lines are optional overlays.
     }
 
     /* Exit marker on the actual bar where the position was closed. */
@@ -496,7 +523,14 @@ export default function PaperTradeChart({
       {/* the chart itself */}
       <div className="relative">
         <div ref={containerRef} className="h-[340px] w-full sm:h-[440px]" />
-        {candles.length === 0 && (
+        {chartError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#0b101b]/80 px-4">
+            <p className="rounded-lg border border-[#FF1744]/40 bg-[#FF1744]/10 px-3 py-2 text-center text-[11px] text-[#FF1744]">
+              Chart unavailable: {chartError}
+            </p>
+          </div>
+        )}
+        {candles.length === 0 && !chartError && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#0b101b]/60">
             <p className="rounded-lg border border-[#1B263B] bg-[#0D1424] px-3 py-2 text-[11px] text-slate-400">
               {status === "ERROR"
