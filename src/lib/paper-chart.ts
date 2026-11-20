@@ -23,6 +23,8 @@ export interface PaperTradeLike {
   realizedPnlInr?: number;
   /** Epoch ms when the simulated position was closed. */
   closedAt?: number;
+  /** Epoch ms when the simulated position was opened (anchors the box). */
+  openedAt?: number;
 }
 
 export interface OverlayToggles {
@@ -31,6 +33,8 @@ export interface OverlayToggles {
   targets: boolean;
   exit: boolean;
   box: boolean;
+  /** DEEEPR setup pushed onto the chart from the AI panel. */
+  ai: boolean;
 }
 
 export const DEFAULT_OVERLAY_TOGGLES: OverlayToggles = {
@@ -39,6 +43,7 @@ export const DEFAULT_OVERLAY_TOGGLES: OverlayToggles = {
   targets: true,
   exit: true,
   box: true,
+  ai: true,
 };
 
 export interface PriceLineSpec {
@@ -61,7 +66,12 @@ export const OVERLAY_COLORS = {
   stop: "#FF1744",
   target: "#00E676",
   exit: "#00F0FF",
+  /** AI-generated annotations are violet so they are never mistaken for trades. */
+  ai: "#A855F7",
 } as const;
+
+/** Default horizontal extension of the compact R:R box, in bars. */
+export const RR_BOX_BARS = 15;
 
 function valid(price: number | undefined | null): price is number {
   return price != null && Number.isFinite(price) && price > 0;
@@ -179,6 +189,94 @@ export function buildPreviewOverlays(
     ...spec,
     lines: spec.lines.map((l) => ({ ...l, title: `${l.title} · PREVIEW` })),
     label: `${preview.direction === "long" ? "LONG" : "SHORT"} preview`,
+  };
+}
+
+/**
+ * DEEEPR setup levels pushed onto the chart.
+ *
+ * These are annotations only: violet entry zone and AI-tagged lines, kept
+ * visually distinct from real candles and from stored/simulated trades.
+ */
+export interface AiSetupLevels {
+  analysisId: string;
+  decision: string;
+  confidence: string;
+  direction: OverlayDirection;
+  entryZone: [number, number];
+  stopLoss: number;
+  takeProfits: number[];
+  /** Epoch ms of the analysis — anchors the compact R:R box to that bar. */
+  timestamp: number;
+}
+
+export interface AiOverlaySpec {
+  lines: PriceLineSpec[];
+  box: RRBoxSpec | null;
+  label: string;
+}
+
+export function buildAiSetupOverlays(
+  setup: AiSetupLevels,
+  toggles: OverlayToggles = DEFAULT_OVERLAY_TOGGLES,
+  decimals = 2,
+): AiOverlaySpec {
+  const lines: PriceLineSpec[] = [];
+  const prefix = setup.direction === "long" ? "LONG" : "SHORT";
+  const [zoneLow, zoneHigh] = setup.entryZone;
+
+  if (toggles.ai) {
+    if (valid(zoneLow) && valid(zoneHigh)) {
+      lines.push({
+        id: `${setup.analysisId}:zone-low`,
+        price: Math.min(zoneLow, zoneHigh),
+        color: OVERLAY_COLORS.ai,
+        title: `AI ${prefix} ENTRY ZONE`,
+        dashed: true,
+      });
+      lines.push({
+        id: `${setup.analysisId}:zone-high`,
+        price: Math.max(zoneLow, zoneHigh),
+        color: OVERLAY_COLORS.ai,
+        title: `AI ENTRY ZONE · ${setup.decision}`,
+        dashed: true,
+      });
+    }
+  }
+  if (toggles.stop && valid(setup.stopLoss)) {
+    lines.push({
+      id: `${setup.analysisId}:sl`,
+      price: setup.stopLoss,
+      color: OVERLAY_COLORS.stop,
+      title: `AI SL ${formatOverlayPrice(setup.stopLoss, decimals)}`,
+      dashed: true,
+    });
+  }
+  if (toggles.targets) {
+    setup.takeProfits.slice(0, 3).forEach((tp, i) => {
+      if (!valid(tp)) return;
+      lines.push({
+        id: `${setup.analysisId}:tp${i + 1}`,
+        price: tp,
+        color: OVERLAY_COLORS.target,
+        title: `AI TP${i + 1} ${formatOverlayPrice(tp, decimals)}`,
+        dashed: true,
+      });
+    });
+  }
+
+  const entryMid =
+    valid(zoneLow) && valid(zoneHigh) ? (zoneLow + zoneHigh) / 2 : null;
+  const farthestTp = setup.takeProfits.filter(valid).slice(-1)[0] ?? null;
+  const box =
+    toggles.box && entryMid != null && valid(setup.stopLoss) && farthestTp != null && farthestTp !== entryMid
+      ? { entry: entryMid, stop: setup.stopLoss, target: farthestTp }
+      : null;
+
+  return {
+    lines,
+    box,
+    label: `AI ${prefix} · ${setup.confidence} CONF · ${setup.decision}`,
   };
 }
 

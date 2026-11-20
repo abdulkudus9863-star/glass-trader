@@ -343,10 +343,18 @@ export default function LightweightChart({
         Number.isFinite(signal.stopLoss) &&
         Math.abs(target - entry) > 0
       ) {
+        const lastBar = candles.length
+          ? (candles[candles.length - 1].time as UTCTimestamp)
+          : (0 as UTCTimestamp);
         boxRef.current = new RiskRewardBoxPrimitive(series, {
           entry,
           stop: signal.stopLoss,
           target,
+          anchorTime: lastBar,
+          bars: 15,
+          label: `R:R 1:${(
+            Math.abs(target - entry) / Math.abs(entry - signal.stopLoss)
+          ).toFixed(1)}`,
         });
         series.attachPrimitive(boxRef.current);
       }

@@ -13,18 +13,30 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { Eye, EyeOff, Maximize2, RefreshCw, TrendingUp } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  Sparkles,
+  TrendingUp,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { findSymbol, TIMEFRAMES, type TimeframeId } from "@/lib/market";
 import type { KlinesState } from "@/hooks/use-klines";
 import {
   DEFAULT_OVERLAY_TOGGLES,
   OVERLAY_COLORS,
+  RR_BOX_BARS,
+  buildAiSetupOverlays,
   buildPreviewOverlays,
   buildTradeOverlays,
+  type AiSetupLevels,
   type OverlayToggles,
   type PaperTradeLike,
   type PreviewInput,
+  type PriceLineSpec,
 } from "@/lib/paper-chart";
 import { RiskRewardBoxPrimitive } from "@/components/chart/risk-reward-primitive";
 import { cn } from "@/lib/utils";
@@ -57,6 +69,23 @@ interface PaperTradeChartProps {
   selectedPnlInr: number | null;
   /** Unsaved form preview — updates as the user types. */
   preview: PreviewInput | null;
+  /** DEEEPR setup pushed from the AI panel (annotations only). */
+  aiSetup?: AiSetupLevels | null;
+  /** Drop the pushed DEEEPR annotations. */
+  onClearAiSetup?: () => void;
+}
+
+const TOGGLES_KEY = "akverse:paper-chart-toggles:v1";
+
+function loadToggles(): OverlayToggles {
+  try {
+    const raw = localStorage.getItem(TOGGLES_KEY);
+    if (!raw) return DEFAULT_OVERLAY_TOGGLES;
+    const parsed = JSON.parse(raw) as Partial<OverlayToggles>;
+    return { ...DEFAULT_OVERLAY_TOGGLES, ...parsed };
+  } catch {
+    return DEFAULT_OVERLAY_TOGGLES;
+  }
 }
 
 export default function PaperTradeChart({
@@ -69,6 +98,8 @@ export default function PaperTradeChart({
   onSelectTrade,
   selectedPnlInr,
   preview,
+  aiSetup = null,
+  onClearAiSetup,
 }: PaperTradeChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -76,12 +107,22 @@ export default function PaperTradeChart({
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
-  const boxRef = useRef<RiskRewardBoxPrimitive | null>(null);
+  const boxesRef = useRef<RiskRewardBoxPrimitive[]>([]);
   /** Only auto-fit when the view changes, so live ticks never reset zoom/pan. */
   const fitKeyRef = useRef("");
-  const [toggles, setToggles] = useState<OverlayToggles>(DEFAULT_OVERLAY_TOGGLES);
+  const [toggles, setToggles] = useState<OverlayToggles>(loadToggles);
+  const [expanded, setExpanded] = useState(false);
   /** Set when the chart engine itself cannot initialise in this browser. */
   const [chartError, setChartError] = useState<string | null>(null);
+
+  /* Persist overlay choices so a reload restores the chart setup. */
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOGGLES_KEY, JSON.stringify(toggles));
+    } catch {
+      /* storage disabled — defaults still apply */
+    }
+  }, [toggles]);
 
   const sym = useMemo(() => findSymbol(symbolId), [symbolId]);
   const decimals = sym?.decimals ?? 2;
@@ -173,7 +214,7 @@ export default function PaperTradeChart({
 
     return () => {
       linesRef.current = [];
-      boxRef.current = null;
+      boxesRef.current = [];
       markersRef.current = null;
       seriesRef.current = null;
       volumeRef.current = null;
@@ -231,18 +272,18 @@ export default function PaperTradeChart({
       for (const line of linesRef.current) series.removePriceLine(line);
       linesRef.current = [];
 
-      if (boxRef.current) {
+      for (const box of boxesRef.current) {
         try {
-          series.detachPrimitive(boxRef.current);
+          series.detachPrimitive(box);
         } catch {
           /* already detached */
         }
-        boxRef.current = null;
       }
+      boxesRef.current = [];
     } catch {
       // A stale chart instance (e.g. after a hot remount) — nothing to clear.
       linesRef.current = [];
-      boxRef.current = null;
+      boxesRef.current = [];
     }
 
     const spec =
@@ -252,13 +293,33 @@ export default function PaperTradeChart({
           ? buildTradeOverlays(selectedTrade, toggles, decimals)
           : null;
 
-    if (!spec) {
+    const aiSpec = aiSetup ? buildAiSetupOverlays(aiSetup, toggles, decimals) : null;
+    const specs = [spec, aiSpec].filter(
+      (s): s is NonNullable<typeof s> => s !== null,
+    );
+
+    if (specs.length === 0) {
       markersRef.current?.setMarkers([]);
       return;
     }
 
-    try {
-      for (const l of spec.lines) {
+    const lastBar = candles.length
+      ? (candles[candles.length - 1].time as number)
+      : null;
+    const tradeAnchor: number | null =
+      selectedTrade?.openedAt != null
+        ? Math.floor(selectedTrade.openedAt / 1000)
+        : null;
+    const aiAnchor: number | null = aiSetup ? Math.floor(aiSetup.timestamp / 1000) : null;
+
+    const draw = (
+      lines: PriceLineSpec[],
+      box: { entry: number; stop: number; target: number } | null,
+      anchor: number | null,
+      tone: "trade" | "ai",
+      label: string,
+    ) => {
+      for (const l of lines) {
         linesRef.current.push(
           series.createPriceLine({
             price: l.price,
@@ -270,11 +331,43 @@ export default function PaperTradeChart({
           }),
         );
       }
+      if (box && anchor != null) {
+        const primitive = new RiskRewardBoxPrimitive(series, {
+          ...box,
+          anchorTime: anchor as UTCTimestamp,
+          bars: RR_BOX_BARS,
+          label,
+          tone,
+        });
+        series.attachPrimitive(primitive);
+        boxesRef.current.push(primitive);
+      }
+    };
 
-      if (spec.box) {
-        const box = new RiskRewardBoxPrimitive(series, spec.box);
-        series.attachPrimitive(box);
-        boxRef.current = box;
+    try {
+      if (spec) {
+        const anchor =
+          previewActive ? lastBar : (tradeAnchor ?? lastBar);
+        draw(
+          spec.lines,
+          spec.box,
+          anchor,
+          "trade",
+          spec.box
+            ? `R:R 1:${(Math.abs(spec.box.target - spec.box.entry) / Math.abs(spec.box.entry - spec.box.stop)).toFixed(1)}`
+            : spec.label,
+        );
+      }
+      if (aiSpec && aiSetup) {
+        draw(
+          aiSpec.lines,
+          aiSpec.box,
+          aiAnchor ?? lastBar,
+          "ai",
+          aiSpec.box
+            ? `AI R:R 1:${(Math.abs(aiSpec.box.target - aiSpec.box.entry) / Math.abs(aiSpec.box.entry - aiSpec.box.stop)).toFixed(1)}`
+            : aiSpec.label,
+        );
       }
     } catch {
       // Drawing failure must never blank the page — lines are optional overlays.
@@ -319,6 +412,7 @@ export default function PaperTradeChart({
     symbolId,
     sym?.id,
     candles,
+    aiSetup,
   ]);
 
   /* ------------------------------- render ---------------------------- */
@@ -335,10 +429,18 @@ export default function PaperTradeChart({
     { key: "targets" as const, label: "Targets", dot: OVERLAY_COLORS.target },
     { key: "exit" as const, label: "Exit", dot: OVERLAY_COLORS.exit },
     { key: "box" as const, label: "R:R zone", dot: "#94a3b8" },
+    { key: "ai" as const, label: "AI setup", dot: OVERLAY_COLORS.ai },
   ];
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#1B263B] bg-[#0b101b]">
+    <section
+      className={cn(
+        "overflow-hidden border border-[#1B263B] bg-[#0b101b]",
+        expanded
+          ? "fixed inset-0 z-[60] flex flex-col rounded-none"
+          : "rounded-2xl",
+      )}
+    >
       {/* header: instrument + price + feed honesty */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[#1B263B] px-3 py-2.5">
         <div className="min-w-0">
@@ -400,6 +502,18 @@ export default function PaperTradeChart({
               className="rounded p-1 text-slate-400 hover:text-foreground"
             >
               <Maximize2 className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-label={expanded ? "Exit fullscreen chart" : "Fullscreen chart"}
+              className="rounded p-1 text-slate-400 hover:text-foreground"
+            >
+              {expanded ? (
+                <Minimize2 className="size-3.5" />
+              ) : (
+                <Maximize2 className="size-3.5 rotate-45" />
+              )}
             </button>
             <button
               type="button"
@@ -520,9 +634,38 @@ export default function PaperTradeChart({
         </div>
       </div>
 
+      {aiSetup && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#1B263B] bg-[#A855F7]/[0.06] px-3 py-1.5">
+          <Sparkles className="size-3.5 shrink-0 text-[#A855F7]" />
+          <p className="min-w-0 flex-1 truncate text-[10px] text-purple-200">
+            DEEEPR setup on chart · {aiSetup.decision} · {aiSetup.confidence} confidence · analysis{" "}
+            {new Date(aiSetup.timestamp).toLocaleTimeString("en-IN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            <span className="ml-1 text-purple-300/70">(annotations only — not an order)</span>
+          </p>
+          {onClearAiSetup && (
+            <button
+              type="button"
+              onClick={onClearAiSetup}
+              className="shrink-0 rounded border border-[#A855F7]/40 px-1.5 py-0.5 text-[10px] font-semibold text-purple-200 hover:bg-[#A855F7]/15"
+            >
+              clear
+            </button>
+          )}
+        </div>
+      )}
+
       {/* the chart itself */}
-      <div className="relative">
-        <div ref={containerRef} className="h-[340px] w-full sm:h-[440px]" />
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={containerRef}
+          className={cn(
+            "w-full",
+            expanded ? "h-[calc(100dvh-200px)]" : "h-[340px] sm:h-[440px]",
+          )}
+        />
         {chartError && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0b101b]/80 px-4">
             <p className="rounded-lg border border-[#FF1744]/40 bg-[#FF1744]/10 px-3 py-2 text-center text-[11px] text-[#FF1744]">

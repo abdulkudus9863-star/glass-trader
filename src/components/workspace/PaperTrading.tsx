@@ -22,9 +22,17 @@ import { paperPnlInr } from "@/lib/paper-pnl";
 import { validatePaperTrade } from "@/lib/paper-form";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useKlines } from "@/hooks/use-klines";
-import type { TimeframeId } from "@/lib/market";
-import type { PaperTradeLike } from "@/lib/paper-chart";
+import { useDeeepr } from "@/hooks/use-deeepr";
+import { findSymbol, type TimeframeId } from "@/lib/market";
+import type { AiSetupLevels, PaperTradeLike } from "@/lib/paper-chart";
+import {
+  savedSetupFromAnalysis,
+  upsertSavedSetup,
+  type SavedAiSetup,
+} from "@/lib/paper-ai";
+import { autoPositionSize, riskBudgetInr } from "@/lib/paper-form";
 import PaperTradeChart from "./PaperTradeChart";
+import PaperDeeeprPanel from "./PaperDeeeprPanel";
 
 /* ============================================================================
    PAPER TRADING — simulation panel.
@@ -49,6 +57,27 @@ const FORM_SYMBOLS = [
 
 const isFormSymbol = (id: string): boolean =>
   (FORM_SYMBOLS as readonly string[]).includes(id);
+
+const SAVED_AI_KEY = "akverse:paper-ai-setups:v1";
+
+function loadSavedSetups(): SavedAiSetup[] {
+  try {
+    const raw = localStorage.getItem(SAVED_AI_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is SavedAiSetup =>
+        !!s &&
+        typeof s === "object" &&
+        typeof (s as SavedAiSetup).id === "string" &&
+        typeof (s as SavedAiSetup).symbol === "string" &&
+        !!(s as SavedAiSetup).levels,
+    );
+  } catch {
+    return [];
+  }
+}
 
 const SYMBOL_LABELS: Record<string, string> = {
   XAUUSD: "Gold · XAU/USD",
@@ -343,6 +372,7 @@ export default function PaperTrading({
         size: t.size,
         realizedPnlInr: t.realizedPnlInr,
         closedAt: t.closedAt,
+        openedAt: t.openedAt,
       })),
     [trades],
   );
@@ -357,6 +387,82 @@ export default function PaperTrading({
   }, [chartTrades, selectedTradeId, symbol]);
 
   const klines = useKlines(symbol, intervalId);
+
+  /* The SAME DEEEPR engine the Charts section runs — no second AI pipeline. */
+  const deeepr = useDeeepr(symbol, intervalId, klines, {
+    price: marks[symbol]?.price ?? null,
+    change24h: marks[symbol]?.change24h ?? null,
+  });
+  const decimals = findSymbol(symbol)?.decimals ?? 2;
+
+  /** Levels currently annotated on the chart (null = nothing pushed). */
+  const [aiSetup, setAiSetup] = useState<AiSetupLevels | null>(null);
+  const [savedSetups, setSavedSetups] = useState<SavedAiSetup[]>(loadSavedSetups);
+
+  const persistSaved = (next: SavedAiSetup[]) => {
+    setSavedSetups(next);
+    try {
+      localStorage.setItem(SAVED_AI_KEY, JSON.stringify(next));
+    } catch {
+      /* storage disabled — the list still lives for this session */
+    }
+  };
+
+  const pushAiLevels = (levels: AiSetupLevels) => {
+    setAiSetup(levels);
+    document
+      .getElementById("paper-chart")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    toast.success("DEEEPR levels pushed to the chart (annotations only).");
+  };
+
+  /** Pre-fill the existing order form from a DEEEPR setup; nothing is stored. */
+  const applyLevelsToForm = (levels: AiSetupLevels) => {
+    const [low, high] = levels.entryZone;
+    const entry = (low + high) / 2;
+    const stop = levels.stopLoss;
+    const tp1 = levels.takeProfits[0];
+    const size = autoPositionSize(
+      riskBudgetInr(account?.balance ?? 0, account?.riskPercent ?? 1),
+      account?.usdInrRate ?? 83.5,
+      entry,
+      stop,
+    );
+    setDirection(levels.direction);
+    setEntry(entry.toFixed(decimals));
+    setStop(stop.toFixed(decimals));
+    setTarget(tp1 != null ? tp1.toFixed(decimals) : "");
+    setSizeOverride(size != null ? String(size) : "");
+    setSubmitError(null);
+    resetToken();
+    document
+      .getElementById("paper-form")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    toast.info("DEEEPR levels loaded — review them, then confirm the position.");
+  };
+
+  const saveAiSetup = (levels: AiSetupLevels) => {
+    if (!deeepr.analysis) {
+      toast.error("No DEEEPR analysis is available to save yet.");
+      return;
+    }
+    const snapshot = savedSetupFromAnalysis({
+      ...deeepr.analysis,
+      entry: { ...deeepr.analysis.entry, zone_low: levels.entryZone[0], zone_high: levels.entryZone[1] },
+      risk: { ...deeepr.analysis.risk, stop_loss: levels.stopLoss },
+    });
+    if (!snapshot) {
+      toast.error("This setup has incomplete levels — nothing was saved.");
+      return;
+    }
+    const next = upsertSavedSetup(savedSetups, snapshot);
+    if (!next.added) {
+      toast.info("That setup is already saved.");
+      return;
+    }
+    persistSaved(next.list);
+    toast.success("Setup saved on this device — reopen it any time below.");
+  };
 
   const selectChartTrade = (id: string | null) => {
     setSelectedTradeId(id);
@@ -533,8 +639,39 @@ export default function PaperTrading({
           onSelectTrade={selectChartTrade}
           selectedPnlInr={selectedPnlInr}
           preview={chartPreview}
+          aiSetup={aiSetup}
+          onClearAiSetup={() => setAiSetup(null)}
         />
       </div>
+
+      <PaperDeeeprPanel
+        symbolId={symbol}
+        intervalId={intervalId}
+        decimals={decimals}
+        deeepr={deeepr}
+        pushedId={aiSetup?.analysisId ?? null}
+        saved={savedSetups}
+        onPush={pushAiLevels}
+        onClearPush={() => setAiSetup(null)}
+        onTake={(draft) => {
+          applyLevelsToForm({
+            analysisId: deeepr.analysis?.analysis_id ?? "draft",
+            decision: deeepr.analysis?.decision ?? "",
+            confidence: deeepr.analysis?.confidence ?? "",
+            direction: draft.direction,
+            entryZone: [draft.entry, draft.entry],
+            stopLoss: draft.stop,
+            takeProfits: draft.target != null ? [draft.target] : [],
+            timestamp: deeepr.analysis?.timestamp ?? Date.now(),
+          });
+        }}
+        onSave={saveAiSetup}
+        onLoadSaved={(levels) => setAiSetup(levels)}
+        onTakeSaved={applyLevelsToForm}
+        onDeleteSaved={(id) =>
+          persistSaved(savedSetups.filter((s) => s.id !== id))
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Risk settings */}
@@ -671,7 +808,10 @@ export default function PaperTrading({
         </section>
 
         {/* New position */}
-        <section className="rounded-2xl border border-[#1B263B] bg-white/[0.02] p-4">
+        <section
+          id="paper-form"
+          className="scroll-mt-4 rounded-2xl border border-[#1B263B] bg-white/[0.02] p-4"
+        >
           <div className="mb-3 flex items-center gap-2">
             <Plus className="size-4 text-[#00E676]" />
             <h3 className="text-sm font-bold tracking-tight text-foreground">
