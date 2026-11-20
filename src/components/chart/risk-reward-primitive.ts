@@ -106,8 +106,11 @@ class PositionBoxView implements IPrimitivePaneView {
         const chart = getChart();
         if (!series || !chart) return;
 
-        target.useBitmapCoordinateSpace((scope) => {
-          const yEntry = series.priceToCoordinate(opts.entry);
+        // Painting runs outside React: a disposed chart or a mid-frame resize
+        // must never bubble an exception up and blank the page.
+        try {
+          target.useBitmapCoordinateSpace((scope) => {
+            const yEntry = series.priceToCoordinate(opts.entry);
           const yStop = series.priceToCoordinate(opts.stop);
           const yTarget = series.priceToCoordinate(opts.target);
           if (yEntry == null || yStop == null || yTarget == null) return;
@@ -186,8 +189,11 @@ class PositionBoxView implements IPrimitivePaneView {
             }
           }
 
-          ctx.restore();
-        });
+            ctx.restore();
+          });
+        } catch {
+          /* chart disposed or canvas unavailable — skip this frame */
+        }
       },
     };
   }
