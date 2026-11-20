@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { FakeDb, makeCtx } from "./helpers/convexFake";
 import * as paper from "../src/convex/paper";
 import { paperPnlInr } from "../src/lib/paper-pnl";
+import { validatePaperTrade } from "../src/lib/paper-form";
 
 const call = (fn: any, ctx: any, args: any) => fn._handler(ctx, args);
 
@@ -691,5 +692,100 @@ describe("analytics with insufficient data", () => {
     const list = await call(paper.listTrades, ctxB, {});
     expect(list).toHaveLength(1);
     expect(list[0].userId).toBe("userB");
+  });
+});
+
+/* ==================== end to end: form → recorded trade ================== */
+
+describe("form validation feeds the real openTrade handler", () => {
+  const settings = { balanceInr: 100_000, riskPercent: 1, usdInrRate: 83.5 };
+
+  test("BTC/USDT LONG typed with commas opens, stores and appears in history", async () => {
+    const db = new FakeDb();
+    const ctx = await newAccount(db);
+    const form = validatePaperTrade(
+      { direction: "long", entry: "115,000", stop: "114,000", target: "118,000" },
+      settings,
+    );
+    expect(form.ok).toBe(true);
+
+    const res = await call(paper.openTrade, ctx, {
+      symbol: "BTCUSDT",
+      direction: form.preview!.direction,
+      entry: form.entry,
+      stopLoss: form.stop,
+      takeProfit: form.target ?? undefined,
+    });
+    expect(res.duplicate).toBe(false);
+    expect(res.trade.status).toBe("OPEN");
+    expect(res.trade.entry).toBe(115_000);
+    expect(res.trade.stopLoss).toBe(114_000);
+    expect(res.trade.takeProfit).toBe(118_000);
+    expect(res.trade.size).toBeCloseTo(form.size!, 6);
+    expect(res.trade.riskInr).toBe(1_000);
+
+    // Opening never moves the virtual balance — only a close realizes P&L.
+    const accAfterOpen = await call(paper.account, ctx, {});
+    expect(accAfterOpen.balance).toBe(100_000);
+
+    const list = await call(paper.listTrades, ctx, {});
+    expect(list).toHaveLength(1);
+    expect(list[0]._id).toBe(res.trade._id);
+    const summary = await call(paper.summary, ctx, {});
+    expect(summary.openCount).toBe(1);
+    expect(summary.openRiskInr).toBe(1_000);
+
+    // Closing at the target realizes the reward and updates the balance.
+    await call(paper.closeTrade, ctx, {
+      tradeId: res.trade._id,
+      exit: 118_000,
+      reason: "target",
+    });
+    const accAfterClose = await call(paper.account, ctx, {});
+    expect(accAfterClose.balance).toBeGreaterThan(100_000);
+    expect(accAfterClose.balance).toBeCloseTo(103_000, 0);
+    const history = await call(paper.listTrades, ctx, {});
+    expect(history[0].status).toBe("CLOSED");
+    expect(history[0].closeReason).toBe("target");
+  });
+
+  test("BTC/USDT SHORT with manual size stores the manual size", async () => {
+    const db = new FakeDb();
+    const ctx = await newAccount(db);
+    const form = validatePaperTrade(
+      { direction: "short", entry: "115000", stop: "116000", target: "112000", size: "0.25" },
+      settings,
+    );
+    expect(form.ok).toBe(true);
+    expect(form.manualSize).toBe(true);
+
+    const res = await call(paper.openTrade, ctx, {
+      symbol: "BTCUSDT",
+      direction: form.preview!.direction,
+      entry: form.entry,
+      stopLoss: form.stop,
+      takeProfit: form.target ?? undefined,
+      size: form.size,
+    });
+    expect(res.trade.size).toBe(0.25);
+    expect(res.trade.direction).toBe("short");
+    expect(res.trade.takeProfit).toBe(112_000);
+    expect(form.riskReward).toBe(3);
+  });
+
+  test("invalid direction/stop combinations never reach the database", async () => {
+    const db = new FakeDb();
+    await newAccount(db);
+    const longWrongSide = validatePaperTrade(
+      { direction: "long", entry: "115000", stop: "116000" },
+      settings,
+    );
+    const shortWrongSide = validatePaperTrade(
+      { direction: "short", entry: "115000", stop: "114000" },
+      settings,
+    );
+    expect(longWrongSide.ok).toBe(false);
+    expect(shortWrongSide.ok).toBe(false);
+    expect(db.count("paperTrades")).toBe(0);
   });
 });

@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { paperPnlInr } from "@/lib/paper-pnl";
+import { validatePaperTrade } from "@/lib/paper-form";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useKlines } from "@/hooks/use-klines";
 import type { TimeframeId } from "@/lib/market";
@@ -125,13 +126,29 @@ export default function PaperTrading({
 
   const marks = useMarketSnapshot(FORM_SYMBOLS as unknown as string[]);
 
+  /* Bootstrap the paper account. A failed attempt must be visible and
+     retryable — silently swallowing it used to leave the order form dead. */
+  const [accountBootstrapError, setAccountBootstrapError] = useState<string | null>(null);
+  const [accountAttempt, setAccountAttempt] = useState(0);
   useEffect(() => {
-    if (account === null) {
-      ensureAccount({}).catch(() => {
-        /* handled by the error toast below */
+    if (account !== null) return;
+    let cancelled = false;
+    ensureAccount({})
+      .then(() => {
+        if (!cancelled) setAccountBootstrapError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setAccountBootstrapError(
+          err instanceof Error && err.message
+            ? err.message
+            : "Could not initialise the simulated account.",
+        );
       });
-    }
-  }, [account, ensureAccount]);
+    return () => {
+      cancelled = true;
+    };
+  }, [account, ensureAccount, accountAttempt]);
 
   /* ------------------------------ settings ------------------------------ */
   const [balanceInput, setBalanceInput] = useState("");
@@ -201,6 +218,7 @@ export default function PaperTrading({
   const [target, setTarget] = useState("");
   const [sizeOverride, setSizeOverride] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const tokenRef = useRef<string | null>(null);
 
   const resetToken = () => {
@@ -228,63 +246,47 @@ export default function PaperTrading({
     onSymbolChange?.(symbol);
   }, [activeSymbolId, symbol, onSymbolChange]);
 
-  const e = parseFloat(entry);
-  const s = parseFloat(stop);
-  const t = parseFloat(target);
   const balance = account?.balance ?? 0;
   const riskPercent = account?.riskPercent ?? 1;
   const rate = account?.usdInrRate ?? 83.5;
-  const riskInr = (balance * riskPercent) / 100;
-  const validPrices = Number.isFinite(e) && e > 0 && Number.isFinite(s) && s > 0 && s !== e;
-  const stopWrongSide =
-    validPrices &&
-    ((direction === "long" && s >= e) || (direction === "short" && s <= e));
-  const riskPerUnit = validPrices ? Math.abs(e - s) : 0;
-  const autoSize =
-    validPrices && riskPerUnit > 0 && rate > 0 ? riskInr / rate / riskPerUnit : null;
-  const chosenSize = sizeOverride.trim() ? parseFloat(sizeOverride) : autoSize;
-  const rr =
-    validPrices && Number.isFinite(t) && t > 0 && riskPerUnit > 0
-      ? Math.abs(t - e) / riskPerUnit
-      : null;
 
-  /* Live preview of the unsaved form on the chart (direction/target update
-     immediately as the user types or flips LONG/SHORT). */
-  const chartPreview = useMemo(
+  /* Single source of truth for the form. Tolerant parsing means "115,000" or
+     "2 400.5" is a real price, not an empty field, and every blocker is
+     reported instead of just greying the button out. `preview` is the chart
+     overlay for the unsaved form. */
+  const form = useMemo(
     () =>
-      validPrices && s !== e
-        ? {
-            direction,
-            entry: e,
-            stop: s,
-            target: Number.isFinite(t) && t > 0 ? t : undefined,
-          }
-        : null,
-    [validPrices, s, e, direction, t],
+      validatePaperTrade(
+        { direction, entry, stop, target, size: sizeOverride },
+        { balanceInr: balance, riskPercent, usdInrRate: rate },
+      ),
+    [direction, entry, stop, target, sizeOverride, balance, riskPercent, rate],
   );
-
-  const canSubmit =
-    !!account &&
-    validPrices &&
-    !stopWrongSide &&
-    !!chosenSize &&
-    Number.isFinite(chosenSize) &&
-    chosenSize > 0 &&
-    !submitting;
+  const { riskInr, riskReward: rr } = form;
+  const chosenSize = form.size;
+  const chartPreview = form.preview;
+  const showFormErrors =
+    form.errors.length > 0 &&
+    [entry, stop, target, sizeOverride].some((v) => v.trim().length > 0);
+  const canSubmit = form.ok && !submitting;
 
   const submitTrade = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
+      // The account is created lazily; if that earlier attempt failed, retry it
+      // here rather than refusing to record the trade.
+      if (!account) await ensureAccount({});
       tokenRef.current ??= (crypto.randomUUID?.() ??
         `${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const res = await openTrade({
         symbol,
         direction,
-        entry: e,
-        stopLoss: s,
-        takeProfit: Number.isFinite(t) && t > 0 ? t : undefined,
-        size: sizeOverride.trim() ? chosenSize : undefined,
+        entry: form.entry!,
+        stopLoss: form.stop!,
+        takeProfit: form.target ?? undefined,
+        size: form.manualSize ? form.size! : undefined,
         clientToken: tokenRef.current,
       });
       if (res.duplicate) {
@@ -298,11 +300,17 @@ export default function PaperTrading({
         setStop("");
         setTarget("");
         setSizeOverride("");
+        setSubmitError(null);
         resetToken();
       }
     } catch (err) {
       resetToken();
-      toast.error(err instanceof Error ? err.message : "Could not open the position.");
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not open the position. Please try again.";
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -494,6 +502,22 @@ export default function PaperTrading({
             Daily loss limit reached for this UTC day — new positions are
             blocked until tomorrow or until you raise the limit in risk settings.
           </p>
+        </div>
+      )}
+
+      {accountBootstrapError && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2.5">
+          <ShieldAlert className="size-4 shrink-0 text-rose-400" />
+          <p className="text-xs leading-5 text-rose-300">
+            Could not initialise the simulated account: {accountBootstrapError}
+          </p>
+          <button
+            type="button"
+            onClick={() => setAccountAttempt((n) => n + 1)}
+            className="ml-auto rounded-lg border border-rose-500/40 px-2 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/20"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -718,11 +742,14 @@ export default function PaperTrading({
                 </Label>
                 <Input
                   id="pt-entry"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
                   placeholder={num(markFor(symbol) ?? 0, 2)}
                   value={entry}
                   onChange={(ev) => {
                     setEntry(ev.target.value);
+                    setSubmitError(null);
                     resetToken();
                   }}
                   className="h-9 bg-white/[0.03] tabular-nums"
@@ -734,10 +761,13 @@ export default function PaperTrading({
                 </Label>
                 <Input
                   id="pt-stop"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
                   value={stop}
                   onChange={(ev) => {
                     setStop(ev.target.value);
+                    setSubmitError(null);
                     resetToken();
                   }}
                   className="h-9 bg-white/[0.03] tabular-nums"
@@ -749,10 +779,13 @@ export default function PaperTrading({
                 </Label>
                 <Input
                   id="pt-target"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
                   value={target}
                   onChange={(ev) => {
                     setTarget(ev.target.value);
+                    setSubmitError(null);
                     resetToken();
                   }}
                   className="h-9 bg-white/[0.03] tabular-nums"
@@ -767,11 +800,13 @@ export default function PaperTrading({
                 </Label>
                 <Input
                   id="pt-size"
-                  type="number"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
                   value={sizeOverride}
                   onChange={(ev) => {
                     setSizeOverride(ev.target.value);
+                    setSubmitError(null);
                     resetToken();
                   }}
                   className="h-9 bg-white/[0.03] tabular-nums"
@@ -809,13 +844,18 @@ export default function PaperTrading({
               </div>
             </div>
 
-            {stopWrongSide && (
-              <p className="flex items-center gap-1.5 text-xs text-rose-400">
-                <AlertTriangle className="size-3.5" />
-                {direction === "long"
-                  ? "Stop must be below entry for a long."
-                  : "Stop must be above entry for a short."}
-              </p>
+            {showFormErrors && (
+              <ul className="flex flex-col gap-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2">
+                {form.errors.map((message) => (
+                  <li
+                    key={message}
+                    className="flex items-start gap-1.5 text-xs leading-5 text-rose-300"
+                  >
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-rose-400" />
+                    {message}
+                  </li>
+                ))}
+              </ul>
             )}
 
             <Button
@@ -835,6 +875,12 @@ export default function PaperTrading({
                 "Open simulated position"
               )}
             </Button>
+            {submitError && (
+              <p className="flex items-start gap-1.5 text-xs leading-5 text-rose-300">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-rose-400" />
+                {submitError}
+              </p>
+            )}
           </div>
         </section>
       </div>
