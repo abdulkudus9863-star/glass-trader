@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_OVERLAY_TOGGLES,
   OVERLAY_COLORS,
+  buildMarketPriceLine,
   buildPreviewOverlays,
   buildTradeOverlays,
   formatOverlayPrice,
   previewRiskReward,
+  tradeZoneSpan,
   type PaperTradeLike,
 } from "../src/lib/paper-chart";
 
@@ -44,17 +46,19 @@ describe("trade overlays", () => {
     ]);
     expect(lines[0].price).toBe(60_000);
     expect(lines[0].color).toBe(OVERLAY_COLORS.entry);
-    expect(lines[0].title).toContain("LONG BTCUSDT");
+    expect(lines[0].title).toBe("ENTRY · LONG");
     expect(lines[1].price).toBe(59_000);
     expect(lines[1].color).toBe(OVERLAY_COLORS.stop);
+    expect(lines[1].title).toBe("SL");
     expect(lines[2].price).toBe(62_500);
     expect(lines[2].color).toBe(OVERLAY_COLORS.target);
+    expect(lines[2].title).toBe("TP1");
     // no exit marker before the position is closed
     expect(lines.some((l) => l.id.endsWith("exit"))).toBe(false);
   });
 
   test("closed trade keeps entry + actual exit marker", () => {
-    const { lines, label } = buildTradeOverlays(closedShort, DEFAULT_OVERLAY_TOGGLES, 2);
+    const { lines, label } = buildTradeOverlays(closedShort, DEFAULT_OVERLAY_TOGGLES);
     expect(label).toBe("SHORT XAUUSD");
     const exit = lines.find((l) => l.id === "t2:exit");
     expect(exit).toBeDefined();
@@ -84,6 +88,7 @@ describe("trade overlays", () => {
 
   test("toggles hide individual levels without inventing others", () => {
     const onlyEntry = buildTradeOverlays(openLong, {
+      ...DEFAULT_OVERLAY_TOGGLES,
       entry: true,
       stop: false,
       targets: false,
@@ -108,12 +113,64 @@ describe("trade overlays", () => {
   });
 });
 
+describe("trade zone lifetime", () => {
+  const latestBar = 1_700_000_600_000;
+
+  test("open trade zone starts at entry and ends at the latest candle", () => {
+    expect(
+      tradeZoneSpan({ ...openLong, openedAt: 1_700_000_000_000 }, latestBar),
+    ).toEqual({ from: 1_700_000_000_000, to: latestBar });
+  });
+
+  test("closed trade zone stops at the recorded exit timestamp", () => {
+    const span = tradeZoneSpan(
+      {
+        ...closedShort,
+        openedAt: 1_699_000_000_000,
+        closedAt: 1_699_000_300_000,
+      },
+      latestBar,
+    );
+    expect(span).toEqual({
+      from: 1_699_000_000_000,
+      to: 1_699_000_300_000,
+    });
+    // never extends into candles after the exit
+    expect(span!.to).toBeLessThan(latestBar);
+  });
+
+  test("missing or invalid timestamps yield no zone instead of a guess", () => {
+    expect(tradeZoneSpan(openLong, latestBar)).toBeNull();
+    expect(
+      tradeZoneSpan(
+        { ...closedShort, openedAt: 1_699_000_000_000 },
+        latestBar,
+      ),
+    ).toBeNull();
+    expect(
+      tradeZoneSpan(
+        { ...openLong, openedAt: 1_700_000_700_000 },
+        latestBar,
+      ),
+    ).toBeNull();
+  });
+
+  test("market price line is neutral, dashed and separate from exit", () => {
+    const market = buildMarketPriceLine(61_234.5);
+    expect(market!.color).toBe(OVERLAY_COLORS.market);
+    expect(market!.dashed).toBe(true);
+    expect(market!.title).toBe("MARKET");
+    expect(market!.price).toBe(61_234.5);
+    expect(buildMarketPriceLine(Number.NaN)).toBeNull();
+    expect(market!.color).not.toBe(OVERLAY_COLORS.exit);
+  });
+});
+
 describe("form preview overlays", () => {
   test("long preview labels ENTRY/SL/TP as PREVIEW", () => {
     const { lines, box, label } = buildPreviewOverlays(
       { direction: "long", entry: 60_000, stop: 59_000, target: 62_000 },
       DEFAULT_OVERLAY_TOGGLES,
-      2,
       "BTCUSDT",
     );
     expect(label).toBe("LONG preview");
@@ -126,7 +183,6 @@ describe("form preview overlays", () => {
     const { lines, box } = buildPreviewOverlays(
       { direction: "short", entry: 2_400, stop: 2_420 },
       DEFAULT_OVERLAY_TOGGLES,
-      2,
       "XAUUSD",
     );
     expect(lines.map((l) => l.id)).toEqual(["preview:entry", "preview:sl"]);

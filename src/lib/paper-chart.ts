@@ -35,6 +35,8 @@ export interface OverlayToggles {
   box: boolean;
   /** DEEEPR setup pushed onto the chart from the AI panel. */
   ai: boolean;
+  /** Latest market price — always distinct from a real exit. */
+  market: boolean;
 }
 
 export const DEFAULT_OVERLAY_TOGGLES: OverlayToggles = {
@@ -44,6 +46,7 @@ export const DEFAULT_OVERLAY_TOGGLES: OverlayToggles = {
   exit: true,
   box: true,
   ai: true,
+  market: true,
 };
 
 export interface PriceLineSpec {
@@ -66,6 +69,8 @@ export const OVERLAY_COLORS = {
   stop: "#FF1744",
   target: "#00E676",
   exit: "#00F0FF",
+  /** Neutral, subtle — never confused with a stored exit price. */
+  market: "#94a3b8",
   /** AI-generated annotations are violet so they are never mistaken for trades. */
   ai: "#A855F7",
 } as const;
@@ -92,17 +97,18 @@ export function formatOverlayPrice(price: number, decimals: number): string {
 export function buildTradeOverlays(
   trade: PaperTradeLike,
   toggles: OverlayToggles = DEFAULT_OVERLAY_TOGGLES,
-  decimals = 2,
 ): { lines: PriceLineSpec[]; box: RRBoxSpec | null; label: string } {
   const lines: PriceLineSpec[] = [];
   const prefix = trade.direction === "long" ? "LONG" : "SHORT";
 
+  /* Compact titles: the price is already drawn on the price axis by the
+     library, so repeating it in the line label only adds clutter. */
   if (toggles.entry && valid(trade.entry)) {
     lines.push({
       id: `${trade._id}:entry`,
       price: trade.entry,
       color: OVERLAY_COLORS.entry,
-      title: `ENTRY · ${prefix} ${trade.symbol}`,
+      title: `ENTRY · ${prefix}`,
       dashed: true,
     });
   }
@@ -111,7 +117,7 @@ export function buildTradeOverlays(
       id: `${trade._id}:sl`,
       price: trade.stopLoss,
       color: OVERLAY_COLORS.stop,
-      title: `SL ${formatOverlayPrice(trade.stopLoss, decimals)}`,
+      title: "SL",
       dashed: true,
     });
   }
@@ -120,7 +126,7 @@ export function buildTradeOverlays(
       id: `${trade._id}:tp1`,
       price: trade.takeProfit,
       color: OVERLAY_COLORS.target,
-      title: `TP1 ${formatOverlayPrice(trade.takeProfit, decimals)}`,
+      title: "TP1",
       dashed: true,
     });
   }
@@ -134,6 +140,7 @@ export function buildTradeOverlays(
         pnl == null
           ? "EXIT"
           : `EXIT · ${pnl >= 0 ? "+" : "−"}₹${Math.abs(Math.round(pnl)).toLocaleString("en-IN")}`,
+      /** Solid so it can never be mistaken for the dashed market price. */
       dashed: false,
     });
   }
@@ -168,7 +175,6 @@ export interface PreviewInput {
 export function buildPreviewOverlays(
   preview: PreviewInput,
   toggles: OverlayToggles = DEFAULT_OVERLAY_TOGGLES,
-  decimals = 2,
   symbol = "",
 ): { lines: PriceLineSpec[]; box: RRBoxSpec | null; label: string } {
   const spec = buildTradeOverlays(
@@ -183,13 +189,59 @@ export function buildPreviewOverlays(
       size: 0,
     },
     { ...toggles, exit: false },
-    decimals,
   );
   return {
     ...spec,
     lines: spec.lines.map((l) => ({ ...l, title: `${l.title} · PREVIEW` })),
     label: `${preview.direction === "long" ? "LONG" : "SHORT"} preview`,
   };
+}
+
+/** Latest market price line — neutrally styled, always dashed. */
+export function buildMarketPriceLine(
+  price: number | null | undefined,
+): PriceLineSpec | null {
+  if (!valid(price)) return null;
+  return {
+    id: "market",
+    price,
+    color: OVERLAY_COLORS.market,
+    title: "MARKET",
+    dashed: true,
+  };
+}
+
+export interface ZoneSpan {
+  /** Epoch ms when the trade started (stored record only). */
+  from: number;
+  /** Epoch ms when the trade ended, or the latest bar for open trades. */
+  to: number;
+}
+
+/**
+ * The exact lifetime a trade's R:R zone may cover.
+ *
+ * Closed trades stop at their recorded `closedAt` (never into future candles),
+ * open trades stop at the latest chart bar, and a closed trade without a valid
+ * close timestamp gets no zone at all instead of a guessed one.
+ */
+export function tradeZoneSpan(
+  trade: PaperTradeLike,
+  latestBarMs: number | null,
+): ZoneSpan | null {
+  if (!valid(trade.entry) || trade.openedAt == null) return null;
+  if (!Number.isFinite(trade.openedAt) || trade.openedAt <= 0) return null;
+
+  if (trade.status === "CLOSED") {
+    const closedAt = trade.closedAt;
+    if (closedAt == null || !Number.isFinite(closedAt) || closedAt < trade.openedAt) {
+      return null;
+    }
+    return { from: trade.openedAt, to: closedAt };
+  }
+
+  if (latestBarMs == null || latestBarMs <= trade.openedAt) return null;
+  return { from: trade.openedAt, to: latestBarMs };
 }
 
 /**
@@ -219,7 +271,6 @@ export interface AiOverlaySpec {
 export function buildAiSetupOverlays(
   setup: AiSetupLevels,
   toggles: OverlayToggles = DEFAULT_OVERLAY_TOGGLES,
-  decimals = 2,
 ): AiOverlaySpec {
   const lines: PriceLineSpec[] = [];
   const prefix = setup.direction === "long" ? "LONG" : "SHORT";
@@ -231,37 +282,37 @@ export function buildAiSetupOverlays(
         id: `${setup.analysisId}:zone-low`,
         price: Math.min(zoneLow, zoneHigh),
         color: OVERLAY_COLORS.ai,
-        title: `AI ${prefix} ENTRY ZONE`,
+        title: `AI ZONE · ${prefix}`,
         dashed: true,
       });
       lines.push({
         id: `${setup.analysisId}:zone-high`,
         price: Math.max(zoneLow, zoneHigh),
         color: OVERLAY_COLORS.ai,
-        title: `AI ENTRY ZONE · ${setup.decision}`,
+        title: "AI ZONE",
         dashed: true,
       });
     }
   }
   if (toggles.stop && valid(setup.stopLoss)) {
-    lines.push({
-      id: `${setup.analysisId}:sl`,
-      price: setup.stopLoss,
-      color: OVERLAY_COLORS.stop,
-      title: `AI SL ${formatOverlayPrice(setup.stopLoss, decimals)}`,
-      dashed: true,
-    });
+          lines.push({
+        id: `${setup.analysisId}:sl`,
+        price: setup.stopLoss,
+        color: OVERLAY_COLORS.stop,
+        title: "AI SL",
+        dashed: true,
+      });
   }
   if (toggles.targets) {
     setup.takeProfits.slice(0, 3).forEach((tp, i) => {
       if (!valid(tp)) return;
-      lines.push({
-        id: `${setup.analysisId}:tp${i + 1}`,
-        price: tp,
-        color: OVERLAY_COLORS.target,
-        title: `AI TP${i + 1} ${formatOverlayPrice(tp, decimals)}`,
-        dashed: true,
-      });
+              lines.push({
+          id: `${setup.analysisId}:tp${i + 1}`,
+          price: tp,
+          color: OVERLAY_COLORS.target,
+          title: `AI TP${i + 1}`,
+          dashed: true,
+        });
     });
   }
 

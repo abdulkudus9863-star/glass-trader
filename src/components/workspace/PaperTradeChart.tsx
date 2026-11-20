@@ -30,8 +30,10 @@ import {
   OVERLAY_COLORS,
   RR_BOX_BARS,
   buildAiSetupOverlays,
+  buildMarketPriceLine,
   buildPreviewOverlays,
   buildTradeOverlays,
+  tradeZoneSpan,
   type AiSetupLevels,
   type OverlayToggles,
   type PaperTradeLike,
@@ -110,6 +112,8 @@ export default function PaperTradeChart({
   const boxesRef = useRef<RiskRewardBoxPrimitive[]>([]);
   /** Only auto-fit when the view changes, so live ticks never reset zoom/pan. */
   const fitKeyRef = useRef("");
+  /** Last trade we auto-fitted for — prevents resetting the user's zoom. */
+  const fitTradeRef = useRef<string | null>(null);
   const [toggles, setToggles] = useState<OverlayToggles>(loadToggles);
   const [expanded, setExpanded] = useState(false);
   /** Set when the chart engine itself cannot initialise in this browser. */
@@ -288,12 +292,12 @@ export default function PaperTradeChart({
 
     const spec =
       previewActive && preview
-        ? buildPreviewOverlays(preview, toggles, decimals, sym?.id ?? symbolId)
+        ? buildPreviewOverlays(preview, toggles, sym?.id ?? symbolId)
         : selectedTrade && selectedTrade.symbol === symbolId
-          ? buildTradeOverlays(selectedTrade, toggles, decimals)
+          ? buildTradeOverlays(selectedTrade, toggles)
           : null;
 
-    const aiSpec = aiSetup ? buildAiSetupOverlays(aiSetup, toggles, decimals) : null;
+    const aiSpec = aiSetup ? buildAiSetupOverlays(aiSetup, toggles) : null;
     const specs = [spec, aiSpec].filter(
       (s): s is NonNullable<typeof s> => s !== null,
     );
@@ -306,16 +310,50 @@ export default function PaperTradeChart({
     const lastBar = candles.length
       ? (candles[candles.length - 1].time as number)
       : null;
-    const tradeAnchor: number | null =
-      selectedTrade?.openedAt != null
-        ? Math.floor(selectedTrade.openedAt / 1000)
+    const lastBarMs = lastBar != null ? lastBar * 1000 : null;
+    const tradeSpan =
+      selectedTrade && selectedTrade.symbol === symbolId
+        ? tradeZoneSpan(selectedTrade, lastBarMs)
         : null;
+    const tradeAnchor: number | null = tradeSpan
+      ? Math.floor(tradeSpan.from / 1000)
+      : null;
+    const tradeEnd: number | null = tradeSpan
+      ? Math.floor(tradeSpan.to / 1000)
+      : null;
     const aiAnchor: number | null = aiSetup ? Math.floor(aiSetup.timestamp / 1000) : null;
+
+    const market = buildMarketPriceLine(lastCandle?.close);
+    /* A closed trade that exited exactly at the last price would stack two
+       axis labels on one level — the stored exit line wins, so skip the
+       market line in that one case. */
+    const exitCollidesWithMarket =
+      selectedTrade?.status === "CLOSED" &&
+      selectedTrade.exit != null &&
+      lastCandle != null &&
+      Math.abs(selectedTrade.exit - lastCandle.close) < 10 ** -decimals;
+    if (toggles.market && market && !exitCollidesWithMarket) {
+      try {
+        linesRef.current.push(
+          series.createPriceLine({
+            price: market.price,
+            color: market.color,
+            lineWidth: 1,
+            lineStyle: 3,
+            axisLabelVisible: true,
+            title: market.title,
+          }),
+        );
+      } catch {
+        /* market line is optional */
+      }
+    }
 
     const draw = (
       lines: PriceLineSpec[],
       box: { entry: number; stop: number; target: number } | null,
       anchor: number | null,
+      endTime: number | null,
       tone: "trade" | "ai",
       label: string,
     ) => {
@@ -335,6 +373,10 @@ export default function PaperTradeChart({
         const primitive = new RiskRewardBoxPrimitive(series, {
           ...box,
           anchorTime: anchor as UTCTimestamp,
+          endTime:
+            endTime != null && endTime > anchor
+              ? (endTime as UTCTimestamp)
+              : null,
           bars: RR_BOX_BARS,
           label,
           tone,
@@ -346,12 +388,12 @@ export default function PaperTradeChart({
 
     try {
       if (spec) {
-        const anchor =
-          previewActive ? lastBar : (tradeAnchor ?? lastBar);
+        const anchor = previewActive ? lastBar : (tradeAnchor ?? lastBar);
         draw(
           spec.lines,
           spec.box,
           anchor,
+          previewActive ? null : tradeEnd,
           "trade",
           spec.box
             ? `R:R 1:${(Math.abs(spec.box.target - spec.box.entry) / Math.abs(spec.box.entry - spec.box.stop)).toFixed(1)}`
@@ -363,6 +405,7 @@ export default function PaperTradeChart({
           aiSpec.lines,
           aiSpec.box,
           aiAnchor ?? lastBar,
+          lastBar,
           "ai",
           aiSpec.box
             ? `AI R:R 1:${(Math.abs(aiSpec.box.target - aiSpec.box.entry) / Math.abs(aiSpec.box.entry - aiSpec.box.stop)).toFixed(1)}`
@@ -415,6 +458,25 @@ export default function PaperTradeChart({
     aiSetup,
   ]);
 
+  /* ---------------- auto-fit once per actually selected trade --------- */
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) return;
+    if (!selectedTrade || selectedTrade.symbol !== symbolId) {
+      fitTradeRef.current = null;
+      return;
+    }
+    if (fitTradeRef.current === selectedTrade._id) return;
+    fitTradeRef.current = selectedTrade._id;
+    try {
+      chart.timeScale().fitContent();
+      series.priceScale().applyOptions({ autoScale: true });
+    } catch {
+      /* chart disposed mid-selection */
+    }
+  }, [selectedTrade, symbolId, candles.length]);
+
   /* ------------------------------- render ---------------------------- */
   const statusBadge =
     status === "LIVE" && freshness === "LIVE"
@@ -428,6 +490,7 @@ export default function PaperTradeChart({
     { key: "stop" as const, label: "Stop", dot: OVERLAY_COLORS.stop },
     { key: "targets" as const, label: "Targets", dot: OVERLAY_COLORS.target },
     { key: "exit" as const, label: "Exit", dot: OVERLAY_COLORS.exit },
+    { key: "market" as const, label: "Market", dot: OVERLAY_COLORS.market },
     { key: "box" as const, label: "R:R zone", dot: "#94a3b8" },
     { key: "ai" as const, label: "AI setup", dot: OVERLAY_COLORS.ai },
   ];
@@ -497,8 +560,12 @@ export default function PaperTradeChart({
             ))}
             <button
               type="button"
-              onClick={() => chartRef.current?.timeScale().fitContent()}
-              aria-label="Fit chart"
+              onClick={() => {
+                chartRef.current?.timeScale().fitContent();
+                seriesRef.current?.priceScale().applyOptions({ autoScale: true });
+              }}
+              aria-label="Reset view"
+              title="Reset view"
               className="rounded p-1 text-slate-400 hover:text-foreground"
             >
               <Maximize2 className="size-3.5" />
@@ -689,8 +756,8 @@ export default function PaperTradeChart({
           ? "Previewing unsaved levels — confirm the position to store them."
           : selectedTrade
             ? selectedTrade.status === "CLOSED"
-              ? "Closed trade — stored entry and actual exit are preserved."
-              : "Open simulated position — levels are the stored record, not draggable."
+              ? "Closed trade — zone ends at the recorded exit time; stored levels never move."
+              : "Open simulated position — zone extends to the latest candle only."
             : "Select a trade or type levels in the form to see overlays."}
       </p>
     </section>

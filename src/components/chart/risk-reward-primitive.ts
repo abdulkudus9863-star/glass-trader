@@ -16,7 +16,12 @@ export interface RiskRewardBoxOptions {
   target: number;
   /** Bar where the trade / setup starts. The box begins at this bar. */
   anchorTime: Time;
-  /** Horizontal extension in bars (default 15). */
+  /**
+   * Bar where the trade ended (or the latest bar for open trades).
+   * When present the box stops here; otherwise it falls back to `bars`.
+   */
+  endTime?: Time | null;
+  /** Fallback horizontal extension in bars (default 15). */
   bars?: number;
   /** Short label drawn inside the box, e.g. "R:R 1:2.4". */
   label?: string;
@@ -66,6 +71,50 @@ export function computeBoxSpan(
     const shift = x1 - plotWidth;
     x0 = Math.max(0, x0 - shift);
     x1 = plotWidth;
+  }
+  if (x1 - x0 < 2) return null;
+  return { x0, x1 };
+}
+
+/**
+ * Span between two real bars, clamped to the plotting area.
+ *
+ * Unlike `computeBoxSpan` this follows the trade's actual lifetime. Bars that
+ * are off-screen are clipped instead of stretching a zone across the chart.
+ */
+export function computeTimeSpan(
+  startX: number | null,
+  endX: number | null,
+  barSpacing: number,
+  plotWidth: number,
+  bars: number = DEFAULT_BOX_BARS,
+): { x0: number; x1: number } | null {
+  if (!Number.isFinite(plotWidth) || plotWidth <= 1) return null;
+  const spacing = Number.isFinite(barSpacing) && barSpacing > 0 ? barSpacing : 6;
+  const fallback = Math.max(spacing, Math.min(bars, 500) * spacing);
+
+  if (startX == null && endX == null) {
+    return computeBoxSpan(null, spacing, plotWidth, bars);
+  }
+
+  let x0 = startX != null && Number.isFinite(startX) ? startX : null;
+  let x1 = endX != null && Number.isFinite(endX) ? endX : null;
+  if (x0 == null && x1 != null) x0 = x1 - fallback;
+  if (x1 == null && x0 != null) x1 = x0 + fallback;
+  if (x0 == null || x1 == null) return null;
+  if (x1 < x0) [x0, x1] = [x1, x0];
+  // Entire lifetime is left of the viewport — nothing truthful to draw.
+  if (x1 < 0) return null;
+  if (x1 - x0 < Math.max(2, spacing * 0.5)) x1 = x0 + fallback;
+
+  if (x1 > plotWidth) {
+    const shift = x1 - plotWidth;
+    x0 -= shift;
+    x1 = plotWidth;
+  }
+  if (x0 < 0) {
+    x1 = Math.min(plotWidth, x1 - x0);
+    x0 = 0;
   }
   if (x1 - x0 < 2) return null;
   return { x0, x1 };
@@ -126,13 +175,24 @@ class PositionBoxView implements IPrimitivePaneView {
           let barSpacing = timeScale.options().barSpacing;
           if (!Number.isFinite(barSpacing) || barSpacing <= 0) barSpacing = 6;
           let anchorX: number | null = null;
+          let endX: number | null = null;
           try {
             anchorX = timeScale.timeToCoordinate(opts.anchorTime);
           } catch {
             anchorX = null;
           }
+          if (opts.endTime != null) {
+            try {
+              endX = timeScale.timeToCoordinate(opts.endTime);
+            } catch {
+              endX = null;
+            }
+          }
 
-          const span = computeBoxSpan(anchorX, barSpacing, plotWidth, opts.bars);
+          const span =
+            opts.endTime != null
+              ? computeTimeSpan(anchorX, endX, barSpacing, plotWidth, opts.bars)
+              : computeBoxSpan(anchorX, barSpacing, plotWidth, opts.bars);
           if (!span) return;
 
           const x0 = span.x0 * hr;

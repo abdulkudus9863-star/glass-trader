@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { computeBoxSpan } from "@/components/chart/risk-reward-primitive";
+import {
+  computeBoxSpan,
+  computeTimeSpan,
+} from "@/components/chart/risk-reward-primitive";
 import {
   aiSetupFromAnalysis,
   aiTradeAction,
@@ -84,6 +87,33 @@ describe("compact R:R box span", () => {
     const fallback = computeBoxSpan(10, 0, 600, 15);
     expect(fallback!.x1 - fallback!.x0).toBe(90);
   });
+
+  test("time span follows the trade lifetime in bars", () => {
+    // 8px bars: entry at x=100, exit 40 bars later at x=420
+    const span = computeTimeSpan(100, 420, 8, 900, 15);
+    expect(span).toEqual({ x0: 100, x1: 420 });
+  });
+
+  test("a closed trade that ended in the past stops at its exit, not today", () => {
+    const span = computeTimeSpan(20, 140, 8, 900, 15);
+    expect(span!.x1).toBe(140);
+    expect(span!.x1).toBeLessThan(900);
+  });
+
+  test("a trade whose whole lifetime is off-screen draws no zone", () => {
+    expect(computeTimeSpan(-300, -100, 8, 900, 15)).toBeNull();
+  });
+
+  test("a missing end falls back to the compact bar extent", () => {
+    const span = computeTimeSpan(100, null, 8, 900, 15);
+    expect(span!.x1 - span!.x0).toBe(120);
+  });
+
+  test("an inverted pair is normalised and clamped to the pane", () => {
+    const span = computeTimeSpan(500, 300, 8, 900, 15);
+    expect(span!.x0).toBe(300);
+    expect(span!.x1).toBe(500);
+  });
 });
 
 describe("DEEEPR decision gating", () => {
@@ -156,7 +186,7 @@ describe("analysis → paper trading bridge", () => {
   test("chart overlays use violet AI zone lines and TP lines", () => {
     const spec = buildAiSetupOverlays(aiSetupFromAnalysis(analysis())!);
     expect(spec.lines.length).toBe(6); // zone low/high, SL, TP1-3
-    expect(spec.lines.filter((l) => l.title.includes("ENTRY ZONE")).length).toBe(2);
+    expect(spec.lines.filter((l) => l.title.includes("AI ZONE")).length).toBe(2);
     expect(spec.lines.find((l) => l.title.includes("SL"))!.color).toBe("#FF1744");
     expect(spec.box!.target).toBe(123_000);
 
@@ -164,7 +194,7 @@ describe("analysis → paper trading bridge", () => {
       ...DEFAULT_OVERLAY_TOGGLES,
       ai: false,
     });
-    expect(noAi.lines.some((l) => l.title.includes("ENTRY ZONE"))).toBe(false);
+    expect(noAi.lines.some((l) => l.title.includes("AI ZONE"))).toBe(false);
   });
 
   test("saved setups dedupe identical analyses", () => {
