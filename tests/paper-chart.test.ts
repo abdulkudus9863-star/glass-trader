@@ -100,6 +100,40 @@ describe("trade overlays", () => {
     expect(onlyEntry.box).toBeNull();
   });
 
+  test("a confirmed target hit hides its TP line but keeps the R:R box", () => {
+    const hit: PaperTradeLike = {
+      ...closedShort,
+      direction: "long",
+      entry: 60_000,
+      stopLoss: 59_000,
+      takeProfit: 62_500,
+      exit: 62_500,
+      realizedPnlInr: 2_500,
+    };
+    const { lines, box } = buildTradeOverlays(hit);
+    expect(lines.some((l) => l.id === "t2:tp1")).toBe(false);
+    expect(box).toEqual({ entry: 60_000, stop: 59_000, target: 62_500 });
+
+    // Open trades never lose the target line — no execution record yet.
+    const open = buildTradeOverlays({ ...hit, status: "OPEN", exit: undefined, closedAt: undefined });
+    expect(open.lines.some((l) => l.id === "t2:tp1")).toBe(true);
+  });
+
+  test("a losing exit beyond the stop keeps the TP line visible", () => {
+    const loser: PaperTradeLike = {
+      ...closedShort,
+      direction: "long",
+      entry: 60_000,
+      stopLoss: 59_000,
+      takeProfit: 62_500,
+      exit: 59_000,
+      realizedPnlInr: -1_000,
+    };
+    const { lines, box } = buildTradeOverlays(loser);
+    expect(lines.some((l) => l.id === "t2:tp1")).toBe(true);
+    expect(box).not.toBeNull();
+  });
+
   test("invalid levels are dropped instead of drawn at zero", () => {
     const bad: PaperTradeLike = {
       ...openLong,

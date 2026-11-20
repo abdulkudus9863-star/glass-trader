@@ -41,6 +41,7 @@ import {
   type PriceLineSpec,
 } from "@/lib/paper-chart";
 import { RiskRewardBoxPrimitive } from "@/components/chart/risk-reward-primitive";
+import type { AiSetupStatus } from "@/lib/paper-ai-order";
 import { cn } from "@/lib/utils";
 
 /** Timeframes offered on the paper-trading chart (spec §1). */
@@ -75,6 +76,8 @@ interface PaperTradeChartProps {
   aiSetup?: AiSetupLevels | null;
   /** Drop the pushed DEEEPR annotations. */
   onClearAiSetup?: () => void;
+  /** Lifecycle status shown next to the AI annotations. */
+  aiStatus?: AiSetupStatus | null;
 }
 
 const TOGGLES_KEY = "akverse:paper-chart-toggles:v1";
@@ -102,6 +105,7 @@ export default function PaperTradeChart({
   preview,
   aiSetup = null,
   onClearAiSetup,
+  aiStatus = null,
 }: PaperTradeChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -705,12 +709,14 @@ export default function PaperTradeChart({
         <div className="flex flex-wrap items-center gap-2 border-b border-[#1B263B] bg-[#A855F7]/[0.06] px-3 py-1.5">
           <Sparkles className="size-3.5 shrink-0 text-[#A855F7]" />
           <p className="min-w-0 flex-1 truncate text-[10px] text-purple-200">
-            DEEEPR setup on chart · {aiSetup.decision} · {aiSetup.confidence} confidence · analysis{" "}
+            <span className="mr-1 rounded border border-[#A855F7]/50 bg-[#A855F7]/20 px-1 py-px font-mono text-[9px] font-bold tracking-wide text-purple-100">
+              {aiStatus ?? "AI SETUP"}
+            </span>
+            {aiSetup.decision} · {aiSetup.confidence} confidence ·{" "}
             {new Date(aiSetup.timestamp).toLocaleTimeString("en-IN", {
               hour: "2-digit",
               minute: "2-digit",
             })}
-            <span className="ml-1 text-purple-300/70">(annotations only — not an order)</span>
           </p>
           {onClearAiSetup && (
             <button

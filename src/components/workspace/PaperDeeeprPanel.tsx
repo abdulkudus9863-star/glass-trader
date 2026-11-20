@@ -9,6 +9,7 @@ import {
   Sparkles,
   Target,
   Trash2,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UseDeeeprResult } from "@/hooks/use-deeepr";
@@ -22,6 +23,7 @@ import {
   type AiTradeDraft,
   type SavedAiSetup,
 } from "@/lib/paper-ai";
+import type { PendingAiSetup } from "@/lib/paper-ai-order";
 
 const price = (n: number, decimals: number) =>
   n.toLocaleString("en-US", {
@@ -47,6 +49,8 @@ export interface PaperDeeeprPanelProps {
   decimals: number;
   deeepr: UseDeeeprResult;
   pushedId: string | null;
+  pending: PendingAiSetup | null;
+  onRemove: () => void;
   saved: SavedAiSetup[];
   onPush: (levels: AiSetupLevels) => void;
   onClearPush: () => void;
@@ -71,6 +75,8 @@ export default function PaperDeeeprPanel({
   decimals,
   deeepr,
   pushedId,
+  pending,
+  onRemove,
   saved,
   onPush,
   onClearPush,
@@ -262,7 +268,9 @@ export default function PaperDeeeprPanel({
               )}
             >
               <Sparkles className="size-3.5" />
-              {levels && pushedId === levels.analysisId ? "On chart · remove" : "Push to chart"}
+              {levels && pushedId === levels.analysisId
+                ? "On chart · remove"
+                : "Push AI analysis"}
             </button>
 
             <button
@@ -295,9 +303,12 @@ export default function PaperDeeeprPanel({
             </span>
           </div>
 
+          <PendingOrderRow pending={pending} onRemove={onRemove} />
+
           <p className="text-[10px] leading-4 text-muted-foreground">
-            Simulation only — Take this trade pre-fills the form below; nothing is
-            stored until you confirm, and no broker order is ever sent.
+            Simulation only — Push AI analysis creates a pending paper order that
+            fills once price trades into the zone, through the existing paper engine.
+            No broker order is ever sent.
           </p>
         </div>
       )}
@@ -362,6 +373,73 @@ export default function PaperDeeeprPanel({
         </div>
       )}
     </section>
+  );
+}
+
+const ACTIVE_STATUS: Record<string, string> = {
+  READY: "border-[#A855F7]/50 bg-[#A855F7]/15 text-purple-100",
+  "PENDING ENTRY": "border-[#A855F7]/50 bg-[#A855F7]/15 text-purple-100",
+  "ENTRY TRIGGERED": "border-[#F4C430]/50 bg-[#F4C430]/15 text-[#F4C430]",
+  FILLED: "border-[#00E676]/50 bg-[#00E676]/15 text-[#00E676]",
+  CANCELLED: "border-slate-500/40 bg-white/5 text-slate-300",
+  EXPIRED: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  REJECTED: "border-[#FF1744]/50 bg-[#FF1744]/10 text-[#FF1744]",
+  ANALYZING: "border-slate-500/40 bg-white/5 text-slate-300",
+};
+
+function PendingOrderRow({
+  pending,
+  onRemove,
+}: {
+  pending: PendingAiSetup | null;
+  onRemove: () => void;
+}) {
+  if (!pending) return null;
+  const executed = pending.status === "FILLED";
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2.5 py-1.5",
+        ACTIVE_STATUS[pending.status] ?? ACTIVE_STATUS.CANCELLED,
+      )}
+    >
+      <span className="rounded bg-black/25 px-1.5 py-px font-mono text-[9px] font-bold tracking-wide">
+        {pending.status}
+      </span>
+      <span className="font-mono text-[10px] font-semibold">
+        {pending.direction === "long" ? "LONG" : "SHORT"} {pending.symbol} ·{" "}
+        {pending.timeframe}
+      </span>
+      <span className="font-mono text-[10px] opacity-80">
+        zone {pending.entryLow.toFixed(2)}–{pending.entryHigh.toFixed(2)} · SL{" "}
+        {pending.stopLoss.toFixed(2)}
+      </span>
+      {!executed && pending.status !== "CANCELLED" && pending.status !== "EXPIRED" && (
+        <span className="font-mono text-[9px] opacity-70">
+          expires {new Date(pending.expiresAt).toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+      )}
+      {pending.message && (
+        <span className="w-full text-[10px] leading-4 opacity-90">{pending.message}</span>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="ml-auto flex h-6 items-center gap-1 rounded border border-current/40 px-1.5 text-[9px] font-bold tracking-wide hover:bg-black/20"
+      >
+        <X className="size-3" />
+        REMOVE AI ANALYSIS
+      </button>
+      {executed && (
+        <span className="w-full text-[10px] leading-4 opacity-90">
+          This AI setup has already been executed. Removing its analysis will not
+          close the open position — use the position controls under Open positions.
+        </span>
+      )}
+    </div>
   );
 }
 

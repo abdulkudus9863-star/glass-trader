@@ -121,7 +121,14 @@ export function buildTradeOverlays(
       dashed: true,
     });
   }
-  if (toggles.targets && valid(trade.takeProfit)) {
+  /* TP lines disappear one-by-one once the engine has CONFIRMED the target
+     was reached (recorded exit at or beyond it). The R:R box below is never
+     removed — it stays as the historical record of the original setup. */
+  const targetConfirmed = (tp: number): boolean => {
+    if (trade.status !== "CLOSED" || !valid(trade.exit)) return false;
+    return trade.direction === "long" ? trade.exit >= tp : trade.exit <= tp;
+  };
+  if (toggles.targets && valid(trade.takeProfit) && !targetConfirmed(trade.takeProfit)) {
     lines.push({
       id: `${trade._id}:tp1`,
       price: trade.takeProfit,
@@ -271,6 +278,8 @@ export interface AiOverlaySpec {
 export function buildAiSetupOverlays(
   setup: AiSetupLevels,
   toggles: OverlayToggles = DEFAULT_OVERLAY_TOGGLES,
+  /** Targets already confirmed by the execution engine (hidden individually). */
+  hitTargets: number[] = [],
 ): AiOverlaySpec {
   const lines: PriceLineSpec[] = [];
   const prefix = setup.direction === "long" ? "LONG" : "SHORT";
@@ -304,9 +313,10 @@ export function buildAiSetupOverlays(
       });
   }
   if (toggles.targets) {
-    setup.takeProfits.slice(0, 3).forEach((tp, i) => {
+        setup.takeProfits.slice(0, 3).forEach((tp, i) => {
       if (!valid(tp)) return;
-              lines.push({
+      if (hitTargets.includes(tp)) return;
+      lines.push({
           id: `${setup.analysisId}:tp${i + 1}`,
           price: tp,
           color: OVERLAY_COLORS.target,

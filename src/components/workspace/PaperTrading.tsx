@@ -31,6 +31,13 @@ import {
   type SavedAiSetup,
 } from "@/lib/paper-ai";
 import { autoPositionSize, riskBudgetInr } from "@/lib/paper-form";
+import {
+  createPendingSetup,
+  evaluateTrigger,
+  isActive,
+  setupIdFor,
+  type PendingAiSetup,
+} from "@/lib/paper-ai-order";
 import PaperTradeChart from "./PaperTradeChart";
 import PaperDeeeprPanel from "./PaperDeeeprPanel";
 
@@ -59,6 +66,35 @@ const isFormSymbol = (id: string): boolean =>
   (FORM_SYMBOLS as readonly string[]).includes(id);
 
 const SAVED_AI_KEY = "akverse:paper-ai-setups:v1";
+const PENDING_AI_KEY = "akverse:paper-ai-pending:v1";
+
+function persistPendingSetup(setup: PendingAiSetup | null) {
+  try {
+    if (setup) localStorage.setItem(PENDING_AI_KEY, JSON.stringify(setup));
+    else localStorage.removeItem(PENDING_AI_KEY);
+  } catch {
+    /* storage disabled — the setup still lives for this session */
+  }
+}
+
+function loadPendingSetup(): PendingAiSetup | null {
+  try {
+    const raw = localStorage.getItem(PENDING_AI_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PendingAiSetup;
+    if (!parsed || typeof parsed.id !== "string" || typeof parsed.symbol !== "string") {
+      return null;
+    }
+    if (!Array.isArray(parsed.takeProfits)) return null;
+    // A setup that expired while the app was closed can never execute.
+    if (isActive(parsed) && Date.now() >= parsed.expiresAt) {
+      return { ...parsed, status: "EXPIRED", message: "Expired while the app was closed." };
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 function loadSavedSetups(): SavedAiSetup[] {
   try {
@@ -398,6 +434,9 @@ export default function PaperTrading({
   /** Levels currently annotated on the chart (null = nothing pushed). */
   const [aiSetup, setAiSetup] = useState<AiSetupLevels | null>(null);
   const [savedSetups, setSavedSetups] = useState<SavedAiSetup[]>(loadSavedSetups);
+  /** Pending/executed AI paper order (persisted across refresh). */
+  const [pending, setPending] = useState<PendingAiSetup | null>(loadPendingSetup);
+  const executingRef = useRef<string | null>(null);
 
   const persistSaved = (next: SavedAiSetup[]) => {
     setSavedSetups(next);
@@ -408,13 +447,165 @@ export default function PaperTrading({
     }
   };
 
+  const updatePending = (next: PendingAiSetup | null) => {
+    setPending(next);
+    persistPendingSetup(next);
+  };
+
+  /** Validate the DEEEPR setup and register a pending paper order. */
   const pushAiLevels = (levels: AiSetupLevels) => {
+    const a = deeepr.analysis;
+    if (!a) {
+      toast.error("No DEEEPR analysis is available yet.");
+      return;
+    }
+    if (pending && isActive(pending)) {
+      toast.error(
+        `An AI setup is already ${pending.status.toLowerCase()} — remove it before pushing another.`,
+      );
+      return;
+    }
+    if (pending && pending.id === setupIdFor(levels)) {
+      toast.info("This setup is already on the chart.");
+      return;
+    }
+
+    const result = createPendingSetup(
+      {
+        symbol,
+        timeframe: intervalId,
+        decision: a.decision,
+        confidence: a.confidence,
+        score: a.score,
+        riskReward: a.risk.actual_rr,
+        levels,
+      },
+      Date.now(),
+    );
+
+    if (!result.ok || !result.setup) {
+      updatePending({
+        id: `rejected-${Date.now()}`,
+        analysisId: levels.analysisId,
+        symbol,
+        timeframe: intervalId,
+        direction: levels.direction,
+        entryLow: levels.entryZone[0],
+        entryHigh: levels.entryZone[1],
+        stopLoss: levels.stopLoss,
+        takeProfits: levels.takeProfits,
+        decision: a.decision,
+        confidence: a.confidence,
+        score: a.score,
+        createdAt: Date.now(),
+        expiresAt: Date.now(),
+        status: "REJECTED",
+        message: result.reason ?? "Setup rejected.",
+      });
+      setAiSetup(null);
+      toast.error(result.reason ?? "Setup rejected — no order created.");
+      return;
+    }
+
+    updatePending(result.setup);
     setAiSetup(levels);
     document
       .getElementById("paper-chart")
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    toast.success("DEEEPR levels pushed to the chart (annotations only).");
+    toast.success(
+      "Pending AI paper order — it fills only when price trades into the zone.",
+    );
   };
+
+  /** Remove/cancel the AI analysis without touching trades or balance. */
+  const removeAiAnalysis = () => {
+    if (pending?.status === "FILLED") {
+      setAiSetup(null);
+      toast.info(
+        "Executed setup — its trade, P&L and balance are untouched. Close the position from Open positions.",
+      );
+      return;
+    }
+    if (pending) {
+      updatePending({
+        ...pending,
+        status: "CANCELLED",
+        message: "Cancelled — this setup will never execute.",
+      });
+    }
+    setAiSetup(null);
+    toast.info("AI analysis removed — no order placed, no history changed.");
+  };
+
+  /* -------------------- pending AI order monitoring -------------------- */
+  const pendingPrice = pending ? (marks[pending.symbol]?.price ?? null) : null;
+  useEffect(() => {
+    if (!pending) return;
+    const result = evaluateTrigger(
+      pending,
+      pendingPrice,
+      Date.now(),
+      pending.symbol,
+    );
+    if (result.action === "none") return;
+
+    // Deferred so the effect never performs a synchronous state update.
+    void Promise.resolve().then(async () => {
+      if (result.action === "expire" || result.action === "reject") {
+        updatePending({
+          ...pending,
+          status: result.action === "expire" ? "EXPIRED" : "REJECTED",
+          message: result.reason,
+        });
+        return;
+      }
+
+      if (executingRef.current === pending.id) return;
+      executingRef.current = pending.id;
+      setPending((current) =>
+        current && current.id === pending.id
+          ? { ...current, status: "ENTRY TRIGGERED" }
+          : current,
+      );
+
+      try {
+        const res = await openTrade({
+          symbol: pending.symbol,
+          direction: pending.direction,
+          entry: result.price,
+          stopLoss: pending.stopLoss,
+          takeProfit: pending.takeProfits[0],
+          clientToken: `ai-order-${pending.id}`,
+        });
+        const filled: PendingAiSetup = {
+          ...pending,
+          status: "FILLED",
+          tradeId: res.trade._id,
+          filledAt: Date.now(),
+          filledEntry: res.trade.entry,
+          message: res.duplicate
+            ? "Already recorded — duplicate execution prevented."
+            : "Filled by real price entering the AI entry zone.",
+        };
+        updatePending(filled);
+        setAiSetup(null);
+        setSelectedTradeId(res.trade._id);
+        toast.success(
+          `AI paper order filled · ${pending.direction.toUpperCase()} ${pending.symbol} @ ${res.trade.entry}`,
+        );
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : "Paper engine rejected the order.";
+        updatePending({ ...pending, status: "REJECTED", message });
+        toast.error(`AI paper order rejected: ${message}`);
+      } finally {
+        executingRef.current = null;
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, pendingPrice, openTrade]);
 
   /** Pre-fill the existing order form from a DEEEPR setup; nothing is stored. */
   const applyLevelsToForm = (levels: AiSetupLevels) => {
@@ -641,6 +832,7 @@ export default function PaperTrading({
           preview={chartPreview}
           aiSetup={aiSetup}
           onClearAiSetup={() => setAiSetup(null)}
+          aiStatus={pending?.status ?? null}
         />
       </div>
 
@@ -650,6 +842,8 @@ export default function PaperTrading({
         decimals={decimals}
         deeepr={deeepr}
         pushedId={aiSetup?.analysisId ?? null}
+        pending={pending}
+        onRemove={removeAiAnalysis}
         saved={savedSetups}
         onPush={pushAiLevels}
         onClearPush={() => setAiSetup(null)}
