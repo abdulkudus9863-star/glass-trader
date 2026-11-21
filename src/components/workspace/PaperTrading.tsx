@@ -30,10 +30,15 @@ import {
   type PaperTradeLike,
 } from "@/lib/paper-chart";
 import {
+  aiSetupFromAnalysis,
   savedSetupFromAnalysis,
   upsertSavedSetup,
   type SavedAiSetup,
 } from "@/lib/paper-ai";
+import {
+  evaluateTradeTiming,
+  type TimingVerdict,
+} from "@/lib/trade-timing";
 import { autoPositionSize, riskBudgetInr } from "@/lib/paper-form";
 import {
   createPendingSetup,
@@ -41,7 +46,6 @@ import {
   isActive,
   normaliseStatus,
   setupIdFor,
-  type AiSetupStatus,
   type PendingAiSetup,
 } from "@/lib/paper-ai-order";
 import PaperTradeChart from "./PaperTradeChart";
@@ -447,12 +451,47 @@ export default function PaperTrading({
   });
   const decimals = findSymbol(symbol)?.decimals ?? 2;
 
+  /**
+   * Slow clock for setup ageing/expiry. Kept in state so render stays pure.
+   */
+  const [nowMs, setNowMs] = useState(0);
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    void Promise.resolve().then(tick);
+    const id = window.setInterval(tick, 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  /** Levels from the EXISTING analysis — reused, never recomputed here. */
+  const analysisLevels = useMemo(
+    () => (deeepr.analysis ? aiSetupFromAnalysis(deeepr.analysis) : null),
+    [deeepr.analysis],
+  );
+
+  /** Is the analysis still executable at today's price? */
+  const timing: TimingVerdict | null = analysisLevels
+    ? evaluateTradeTiming({
+        setup: analysisLevels,
+        timeframe: intervalId,
+        price: marks[symbol]?.price ?? null,
+        candles: klines.candles,
+        now: nowMs,
+      })
+    : null;
+
   /** Levels currently annotated on the chart (null = nothing pushed). */
   const [aiSetup, setAiSetup] = useState<AiSetupLevels | null>(null);
   const [savedSetups, setSavedSetups] = useState<SavedAiSetup[]>(loadSavedSetups);
   /** Pending/executed AI paper order (persisted across refresh). */
   const [pending, setPending] = useState<PendingAiSetup | null>(loadPendingSetup);
   const executingRef = useRef<string | null>(null);
+
+  /* Invalidated/expired analysis must not leave stale levels behind. */
+  useEffect(() => {
+    if (!aiSetup || !timing) return;
+    if (timing.status !== "INVALID SETUP" && timing.status !== "EXPIRED") return;
+    void Promise.resolve().then(() => setAiSetup(null));
+  }, [aiSetup, timing]);
 
   const persistSaved = (next: SavedAiSetup[]) => {
     setSavedSetups(next);
@@ -493,6 +532,18 @@ export default function PaperTrading({
     const a = deeepr.analysis;
     if (!a) {
       toast.error("No DEEEPR analysis is available yet.");
+      return;
+    }
+    // Re-check executability against the CURRENT market, not the signal time.
+    const verdict = evaluateTradeTiming({
+      setup: levels,
+      timeframe: intervalId,
+      price: marks[symbol]?.price ?? null,
+      candles: klines.candles,
+      now: Date.now(),
+    });
+    if (!verdict.canArm) {
+      toast.error(verdict.explanation);
       return;
     }
     if (pending && isActive(pending)) {
@@ -585,6 +636,59 @@ export default function PaperTrading({
 
   /* -------------------- pending AI order monitoring -------------------- */
   const pendingPrice = pending ? (marks[pending.symbol]?.price ?? null) : null;
+
+  /** The armed setup re-expressed as the existing level shape. */
+  const pendingLevels: AiSetupLevels | null = pending
+    ? {
+        analysisId: pending.analysisId,
+        decision: pending.decision,
+        confidence: pending.confidence,
+        direction: pending.direction,
+        entryZone: [pending.entryLow, pending.entryHigh],
+        stopLoss: pending.stopLoss,
+        takeProfits: pending.takeProfits,
+        timestamp: pending.createdAt,
+      }
+    : null;
+
+  /** Live executability re-check for the armed order (same evaluator). */
+  const pendingTiming: TimingVerdict | null = pendingLevels
+    ? evaluateTradeTiming({
+        setup: pendingLevels,
+        timeframe: pending?.timeframe ?? intervalId,
+        price: pendingPrice,
+        candles:
+          pending?.symbol === symbol ? klines.candles : undefined,
+        now: nowMs,
+      })
+    : null;
+
+  const pendingTimingRef = useRef<TimingVerdict | null>(null);
+  useEffect(() => {
+    pendingTimingRef.current = pendingTiming;
+  }, [pendingTiming]);
+
+  /* Blocked opportunities are cancelled/rejected before they can fill. */
+  useEffect(() => {
+    if (!pending || !isActive(pending) || !pendingTiming) return;
+    const blocked = pendingTiming.status;
+    let nextStatus: PendingAiSetup["status"] | null = null;
+    if (blocked === "EXPIRED") nextStatus = "EXPIRED";
+    else if (blocked === "INVALID SETUP" || blocked === "MISSED TRADE") {
+      nextStatus = "REJECTED";
+    } else if (blocked === "LATE ENTRY") nextStatus = "CANCELLED";
+    if (!nextStatus) return;
+
+    const message = pendingTiming.explanation;
+    const target = pending;
+    void Promise.resolve().then(() => {
+      updatePending({ ...target, status: nextStatus!, message });
+      // A blocked setup keeps no live entry/SL/TP overlays.
+      setAiSetup(null);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, pendingTiming]);
+
   useEffect(() => {
     if (!pending) return;
     const result = evaluateTrigger(
@@ -609,6 +713,8 @@ export default function PaperTrading({
       }
 
       if (executingRef.current === pending.id) return;
+      // Final timing gate: never fill a missed/late/invalid opportunity.
+      if (!pendingTimingRef.current?.canAutoExecute) return;
       executingRef.current = pending.id;
 
       try {
@@ -797,13 +903,6 @@ export default function PaperTrading({
     });
   }, [trades, selectedTradeId]);
 
-  /** READY = shown only; ARMED/EXECUTED = a real paper order exists. */
-  const aiChartStatus: AiSetupStatus | null = aiSetup
-    ? pending && (isActive(pending) || pending.status === "EXECUTED")
-      ? pending.status
-      : "READY"
-    : null;
-
   const selectedMark = selectedTrade ? markFor(selectedTrade.symbol) : null;
   const selectedPnlInr =
     selectedTrade && selectedTrade.status === "OPEN" && selectedMark != null
@@ -990,7 +1089,7 @@ export default function PaperTrading({
           preview={chartPreview}
           aiSetup={aiSetup}
           onClearAiSetup={() => setAiSetup(null)}
-          aiStatus={aiChartStatus}
+          aiStatus={aiSetup ? (timing?.status ?? "READY") : null}
         />
       </div>
 
@@ -1001,6 +1100,7 @@ export default function PaperTrading({
         deeepr={deeepr}
         pushedId={aiSetup?.analysisId ?? null}
         pending={pending}
+        timing={timing}
         onRemove={removeAiAnalysis}
         saved={savedSetups}
         onPush={pushAiLevels}

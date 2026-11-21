@@ -16,12 +16,12 @@ import type { UseDeeeprResult } from "@/hooks/use-deeepr";
 import type { TimeframeId } from "@/lib/market";
 import type { AiSetupLevels } from "@/lib/paper-chart";
 import {
-  actionHint,
   aiSetupFromAnalysis,
   aiTradeAction,
   type SavedAiSetup,
 } from "@/lib/paper-ai";
 import { isActive, type PendingAiSetup } from "@/lib/paper-ai-order";
+import type { TimingStatus, TimingVerdict } from "@/lib/trade-timing";
 
 const price = (n: number, decimals: number) =>
   n.toLocaleString("en-US", {
@@ -48,6 +48,8 @@ export interface PaperDeeeprPanelProps {
   deeepr: UseDeeeprResult;
   pushedId: string | null;
   pending: PendingAiSetup | null;
+  /** Live executability verdict from the trade-timing evaluator. */
+  timing: TimingVerdict | null;
   onRemove: () => void;
   saved: SavedAiSetup[];
   onPush: (levels: AiSetupLevels) => void;
@@ -75,6 +77,7 @@ export default function PaperDeeeprPanel({
   deeepr,
   pushedId,
   pending,
+  timing,
   onRemove,
   saved,
   onPush,
@@ -249,6 +252,27 @@ export default function PaperDeeeprPanel({
             />
           </div>
 
+          {timing && (
+            <div
+              className={cn(
+                "flex flex-wrap items-start gap-x-2 gap-y-1 rounded-lg border px-2.5 py-1.5",
+                TIMING_STYLE[timing.status],
+              )}
+            >
+              <span className="rounded bg-black/25 px-1.5 py-px font-mono text-[9px] font-bold tracking-wide">
+                {timing.status}
+              </span>
+              <p className="min-w-0 flex-1 text-[10px] leading-4">
+                {timing.explanation}
+              </p>
+              {timing.remainingRR != null && (
+                <span className="shrink-0 font-mono text-[9px] opacity-80">
+                  R:R 1:{timing.remainingRR.toFixed(1)}
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -273,7 +297,9 @@ export default function PaperDeeeprPanel({
 
             <button
               type="button"
-              disabled={action !== "take" || !levels || isActive(pending)}
+              disabled={
+                action !== "take" || !levels || isActive(pending) || !timing?.canArm
+              }
               onClick={() => {
                 if (action === "take" && levels) onArm(levels);
               }}
@@ -297,7 +323,11 @@ export default function PaperDeeeprPanel({
 
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <ShieldAlert className="size-3 text-[#F4C430]" />
-              {actionHint(action)}
+              {timing
+                ? timing.canArm
+                  ? "Current market conditions allow arming — one paper trade only."
+                  : "Current market conditions block arming — see the verdict above."
+                : "Waiting for a live quote before deciding executability."}
             </span>
           </div>
 
@@ -382,6 +412,17 @@ export default function PaperDeeeprPanel({
     </section>
   );
 }
+
+const TIMING_STYLE: Record<TimingStatus, string> = {
+  "VALID ENTRY": "border-[#00E676]/50 bg-[#00E676]/10 text-[#00E676]",
+  "WAITING FOR ENTRY": "border-[#A855F7]/50 bg-[#A855F7]/10 text-purple-200",
+  "WAIT FOR RETEST": "border-[#00F0FF]/50 bg-[#00F0FF]/10 text-[#00F0FF]",
+  "LATE ENTRY": "border-[#F4C430]/50 bg-[#F4C430]/10 text-[#F4C430]",
+  "MISSED TRADE": "border-[#FF1744]/50 bg-[#FF1744]/10 text-[#FF1744]",
+  "INVALID SETUP": "border-[#FF1744]/50 bg-[#FF1744]/10 text-[#FF1744]",
+  EXPIRED: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  "DATA UNAVAILABLE": "border-slate-500/40 bg-white/5 text-slate-300",
+};
 
 const ACTIVE_STATUS: Record<string, string> = {
   ANALYSING: "border-slate-500/40 bg-white/5 text-slate-300",

@@ -41,7 +41,6 @@ import {
   type PriceLineSpec,
 } from "@/lib/paper-chart";
 import { RiskRewardBoxPrimitive } from "@/components/chart/risk-reward-primitive";
-import type { AiSetupStatus } from "@/lib/paper-ai-order";
 import { cn } from "@/lib/utils";
 
 /** Timeframes offered on the paper-trading chart (spec §1). */
@@ -76,8 +75,8 @@ interface PaperTradeChartProps {
   aiSetup?: AiSetupLevels | null;
   /** Drop the pushed DEEEPR annotations. */
   onClearAiSetup?: () => void;
-  /** Lifecycle status shown next to the AI annotations. */
-  aiStatus?: AiSetupStatus | null;
+  /** Lifecycle/timing status shown next to the AI annotations. */
+  aiStatus?: string | null;
 }
 
 const TOGGLES_KEY = "akverse:paper-chart-toggles:v1";
