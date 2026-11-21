@@ -39,7 +39,9 @@ import {
   createPendingSetup,
   evaluateTrigger,
   isActive,
+  normaliseStatus,
   setupIdFor,
+  type AiSetupStatus,
   type PendingAiSetup,
 } from "@/lib/paper-ai-order";
 import PaperTradeChart from "./PaperTradeChart";
@@ -90,11 +92,14 @@ function loadPendingSetup(): PendingAiSetup | null {
       return null;
     }
     if (!Array.isArray(parsed.takeProfits)) return null;
+    const status = normaliseStatus(parsed.status);
+    if (!status) return null;
+    const setup: PendingAiSetup = { ...parsed, status };
     // A setup that expired while the app was closed can never execute.
-    if (isActive(parsed) && Date.now() >= parsed.expiresAt) {
-      return { ...parsed, status: "EXPIRED", message: "Expired while the app was closed." };
+    if (isActive(setup) && Date.now() >= setup.expiresAt) {
+      return { ...setup, status: "EXPIRED", message: "Expired while the app was closed." };
     }
-    return parsed;
+    return setup;
   } catch {
     return null;
   }
@@ -463,8 +468,28 @@ export default function PaperTrading({
     persistPendingSetup(next);
   };
 
-  /** Validate the DEEEPR setup and register a pending paper order. */
+  /**
+   * PUSH ON CHART — annotations only. This never creates an order, never
+   * reserves balance and can be removed without touching any record.
+   */
   const pushAiLevels = (levels: AiSetupLevels) => {
+    if (pending && isActive(pending) && pending.analysisId !== levels.analysisId) {
+      toast.error(
+        "An AI setup is already armed — remove it before pushing different levels.",
+      );
+      return;
+    }
+    setAiSetup(levels);
+    document
+      .getElementById("paper-chart")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    toast.info(
+      "AI levels shown on the chart — analysis only. Use TAKE THIS TRADE to arm auto-execution.",
+    );
+  };
+
+  /** TAKE THIS TRADE — validate and arm a pending paper order. */
+  const armAiSetup = (levels: AiSetupLevels) => {
     const a = deeepr.analysis;
     if (!a) {
       toast.error("No DEEEPR analysis is available yet.");
@@ -472,7 +497,13 @@ export default function PaperTrading({
     }
     if (pending && isActive(pending)) {
       toast.error(
-        `An AI setup is already ${pending.status.toLowerCase()} — remove it before pushing another.`,
+        `An AI setup is already ${pending.status.toLowerCase()} — remove it before arming another.`,
+      );
+      return;
+    }
+    if (pending && pending.status === "EXECUTED") {
+      toast.info(
+        "This setup is already executed — manage the position from Open positions.",
       );
       return;
     }
@@ -513,8 +544,9 @@ export default function PaperTrading({
         status: "REJECTED",
         message: result.reason ?? "Setup rejected.",
       });
+      // A rejected setup keeps no live overlays on the active chart.
       setAiSetup(null);
-      toast.error(result.reason ?? "Setup rejected — no order created.");
+      toast.error(result.reason ?? "Setup rejected — nothing was armed.");
       return;
     }
 
@@ -524,28 +556,31 @@ export default function PaperTrading({
       .getElementById("paper-chart")
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
     toast.success(
-      "Pending AI paper order — it fills only when price trades into the zone.",
+      "AI setup ARMED — exactly one paper trade fills when price reaches the zone.",
     );
   };
 
   /** Remove/cancel the AI analysis without touching trades or balance. */
   const removeAiAnalysis = () => {
-    if (pending?.status === "FILLED") {
+    if (pending?.status === "EXECUTED" || pending?.status === "CLOSED") {
       setAiSetup(null);
       toast.info(
-        "Executed setup — its trade, P&L and balance are untouched. Close the position from Open positions.",
+        "This AI setup has already been executed. Removing its analysis will not close the open position — manage it from Open positions.",
       );
       return;
     }
-    if (pending) {
+    if (pending && isActive(pending)) {
       updatePending({
         ...pending,
         status: "CANCELLED",
         message: "Cancelled — this setup will never execute.",
       });
+    } else if (pending) {
+      // Rejected/expired/analysed-only records leave no pending-order residue.
+      updatePending(null);
     }
     setAiSetup(null);
-    toast.info("AI analysis removed — no order placed, no history changed.");
+    toast.info("AI analysis removed — nothing was armed or changed in history.");
   };
 
   /* -------------------- pending AI order monitoring -------------------- */
@@ -568,16 +603,13 @@ export default function PaperTrading({
           status: result.action === "expire" ? "EXPIRED" : "REJECTED",
           message: result.reason,
         });
+        // Stale/rejected levels must not remain on the active chart.
+        setAiSetup(null);
         return;
       }
 
       if (executingRef.current === pending.id) return;
       executingRef.current = pending.id;
-      setPending((current) =>
-        current && current.id === pending.id
-          ? { ...current, status: "ENTRY TRIGGERED" }
-          : current,
-      );
 
       try {
         const res = await openTrade({
@@ -590,7 +622,7 @@ export default function PaperTrading({
         });
         const filled: PendingAiSetup = {
           ...pending,
-          status: "FILLED",
+          status: "EXECUTED",
           tradeId: res.trade._id,
           filledAt: Date.now(),
           filledEntry: res.trade.entry,
@@ -610,6 +642,7 @@ export default function PaperTrading({
             ? err.message
             : "Paper engine rejected the order.";
         updatePending({ ...pending, status: "REJECTED", message });
+        setAiSetup(null);
         toast.error(`AI paper order rejected: ${message}`);
       } finally {
         executingRef.current = null;
@@ -674,6 +707,71 @@ export default function PaperTrading({
   };
 
   /**
+   * EXECUTED → CLOSED plus automatic SL/TP monitoring for the AI-executed
+   * position, all through the existing `paper.closeTrade` mutation. Manual
+   * positions keep their manual exit controls; only the AI trade is monitored.
+   */
+  const autoCloseRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pending || pending.status !== "EXECUTED" || !pending.tradeId) return;
+    const trade = (trades ?? []).find((t) => t._id === pending.tradeId);
+    if (!trade) return;
+
+    if (trade.status === "CLOSED") {
+      const closed = pending;
+      void Promise.resolve().then(() => {
+        if (closed.status !== "EXECUTED") return;
+        updatePending({
+          ...closed,
+          status: "CLOSED",
+          message: `Position closed${trade.exit != null ? ` @ ${trade.exit}` : ""} · realized ${trade.realizedPnlInr != null ? inr(trade.realizedPnlInr) : "—"}.`,
+        });
+      });
+      return;
+    }
+
+    if (trade.status !== "OPEN") return;
+    const mark = marks[trade.symbol]?.price ?? null;
+    if (mark == null) return;
+    const hitStop =
+      trade.direction === "long" ? mark <= trade.stopLoss : mark >= trade.stopLoss;
+    const hitTarget =
+      trade.takeProfit != null &&
+      (trade.direction === "long"
+        ? mark >= trade.takeProfit
+        : mark <= trade.takeProfit);
+    if (!hitStop && !hitTarget) return;
+    if (autoCloseRef.current === trade._id) return;
+    autoCloseRef.current = trade._id;
+
+    void Promise.resolve().then(async () => {
+      try {
+        const reason = hitStop ? "stop" : "target";
+        const res = await closeTrade({
+          tradeId: trade._id,
+          exit: mark,
+          reason,
+        });
+        if (res.alreadyClosed) {
+          toast.info("AI position was already closed.");
+        } else {
+          const pnl = res.trade.realizedPnlInr ?? 0;
+          toast.success(
+            `AI position auto-closed at ${reason === "stop" ? "stop-loss" : "take-profit"} · ${pnl >= 0 ? "+" : ""}${inr(pnl)} (simulation)`,
+          );
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Could not close the AI position.",
+        );
+      } finally {
+        autoCloseRef.current = null;
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, trades, marks, closeTrade]);
+
+  /**
    * Remove a completed order's overlay from the ACTIVE chart exactly once.
    * History is untouched — the record stays in `trades` and can be re-opened
    * in historical view by selecting it. Only the committed status transition
@@ -698,6 +796,13 @@ export default function PaperTrading({
       );
     });
   }, [trades, selectedTradeId]);
+
+  /** READY = shown only; ARMED/EXECUTED = a real paper order exists. */
+  const aiChartStatus: AiSetupStatus | null = aiSetup
+    ? pending && (isActive(pending) || pending.status === "EXECUTED")
+      ? pending.status
+      : "READY"
+    : null;
 
   const selectedMark = selectedTrade ? markFor(selectedTrade.symbol) : null;
   const selectedPnlInr =
@@ -798,12 +903,28 @@ export default function PaperTrading({
         </span>
       </div>
 
+      {/* One-line workflow so the page explains itself */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-xl border border-[#1B263B] bg-white/[0.02] px-3 py-2 text-[10px] text-slate-400">
+        <span className="font-bold text-[#A855F7]">AI Analysis</span>
+        <span>→</span>
+        <span>Push on chart (view only) or Take this trade (arm)</span>
+        <span>→</span>
+        <span className="font-bold text-[#F4C430]">fills at the entry zone</span>
+        <span>→</span>
+        <span className="font-bold text-[#00E676]">Open positions</span>
+        <span>→</span>
+        <span>Trade history</span>
+        <span className="ml-auto text-slate-500">
+          Manual orders use the same account and ledger.
+        </span>
+      </div>
+
       {/* Account summary */}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
-          label="Virtual balance"
+          label="Account balance"
           value={inr(account?.balance ?? 0)}
-          hint={`Started ${inr(account?.startingBalance ?? 0)}`}
+          hint={`Simulated INR ledger · started ${inr(account?.startingBalance ?? 0)}`}
         />
         <Stat
           label="Today's realized P&L"
@@ -869,7 +990,7 @@ export default function PaperTrading({
           preview={chartPreview}
           aiSetup={aiSetup}
           onClearAiSetup={() => setAiSetup(null)}
-          aiStatus={pending?.status ?? null}
+          aiStatus={aiChartStatus}
         />
       </div>
 
@@ -884,18 +1005,7 @@ export default function PaperTrading({
         saved={savedSetups}
         onPush={pushAiLevels}
         onClearPush={() => setAiSetup(null)}
-        onTake={(draft) => {
-          applyLevelsToForm({
-            analysisId: deeepr.analysis?.analysis_id ?? "draft",
-            decision: deeepr.analysis?.decision ?? "",
-            confidence: deeepr.analysis?.confidence ?? "",
-            direction: draft.direction,
-            entryZone: [draft.entry, draft.entry],
-            stopLoss: draft.stop,
-            takeProfits: draft.target != null ? [draft.target] : [],
-            timestamp: deeepr.analysis?.timestamp ?? Date.now(),
-          });
-        }}
+        onArm={armAiSetup}
         onSave={saveAiSetup}
         onLoadSaved={(levels) => setAiSetup(levels)}
         onTakeSaved={applyLevelsToForm}
@@ -1045,9 +1155,15 @@ export default function PaperTrading({
         >
           <div className="mb-3 flex items-center gap-2">
             <Plus className="size-4 text-[#00E676]" />
-            <h3 className="text-sm font-bold tracking-tight text-foreground">
-              New simulated position
-            </h3>
+            <div>
+              <h3 className="text-sm font-bold tracking-tight text-foreground">
+                Manual order · BUY / SELL
+              </h3>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                Opens immediately at your entry — it bypasses AI auto-execution but
+                uses the same paper account and ledger.
+              </p>
+            </div>
           </div>
 
           <div className="grid gap-3">
@@ -1085,7 +1201,7 @@ export default function PaperTrading({
                         : "bg-white/[0.03] text-slate-400 hover:text-emerald-400",
                     )}
                   >
-                    LONG
+                    BUY · LONG
                   </button>
                   <button
                     type="button"
@@ -1100,7 +1216,7 @@ export default function PaperTrading({
                         : "bg-white/[0.03] text-slate-400 hover:text-rose-400",
                     )}
                   >
-                    SHORT
+                    SELL · SHORT
                   </button>
                 </div>
               </div>

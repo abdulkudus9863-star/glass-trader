@@ -4,6 +4,7 @@ import {
   createPendingSetup,
   evaluateTrigger,
   isActive,
+  normaliseStatus,
   setupExpiry,
   setupIdFor,
   type PendingAiSetup,
@@ -53,7 +54,7 @@ describe("pending setup validation", () => {
   test("a valid SHORT analysis becomes a pending order with normalised zone", () => {
     const { ok, setup } = createPendingSetup(shortCandidate, NOW);
     expect(ok).toBe(true);
-    expect(setup!.status).toBe("PENDING ENTRY");
+    expect(setup!.status).toBe("ARMED");
     expect(setup!.entryLow).toBe(58_767);
     expect(setup!.entryHigh).toBe(58_853);
     expect(setup!.direction).toBe("short");
@@ -111,6 +112,21 @@ describe("pending setup validation", () => {
     ).toMatchObject({ ok: false });
   });
 
+  test("legacy statuses migrate onto the current lifecycle", () => {
+    expect(normaliseStatus("PENDING ENTRY")).toBe("ARMED");
+    expect(normaliseStatus("ENTRY TRIGGERED")).toBe("ARMED");
+    expect(normaliseStatus("FILLED")).toBe("EXECUTED");
+    expect(normaliseStatus("ANALYZING")).toBe("ANALYSING");
+    expect(normaliseStatus("READY")).toBe("READY");
+    expect(normaliseStatus("CANCELLED")).toBe("CANCELLED");
+    expect(normaliseStatus("garbage")).toBeNull();
+    expect(normaliseStatus(null)).toBeNull();
+  });
+
+  test("READY is display-only and is never active/executable", () => {
+    expect(isActive(pending({ status: "READY" }))).toBe(false);
+  });
+
   test("setup ids are deterministic so duplicates cannot execute twice", () => {
     expect(setupIdFor(shortLevels)).toBe(setupIdFor({ ...shortLevels }));
     expect(setupIdFor(shortLevels)).not.toBe(setupIdFor(longLevels));
@@ -165,8 +181,15 @@ describe("trigger evaluation", () => {
     });
   });
 
-  test("cancelled, filled, rejected and expired setups are inert", () => {
-    for (const status of ["CANCELLED", "FILLED", "REJECTED", "EXPIRED"] as const) {
+  test("cancelled, executed, closed, rejected and expired setups are inert", () => {
+    for (const status of [
+      "CANCELLED",
+      "EXECUTED",
+      "CLOSED",
+      "REJECTED",
+      "EXPIRED",
+      "READY",
+    ] as const) {
       expect(evaluateTrigger(pending({ status }), 58_800, NOW, "BTCUSDT").action).toBe(
         "none",
       );

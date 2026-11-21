@@ -530,9 +530,14 @@ export default function PaperTradeChart({
           >
             {statusBadge.text}
           </span>
-          <span className="font-mono text-lg font-bold tabular-nums text-foreground">
-            {lastCandle ? lastCandle.close.toFixed(decimals) : "—"}
-          </span>
+          <div className="text-right">
+            <p className="text-[8px] uppercase tracking-wider text-muted-foreground">
+              Market price
+            </p>
+            <span className="font-mono text-lg font-bold tabular-nums text-foreground">
+              {lastCandle ? lastCandle.close.toFixed(decimals) : "—"}
+            </span>
+          </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
           <span>

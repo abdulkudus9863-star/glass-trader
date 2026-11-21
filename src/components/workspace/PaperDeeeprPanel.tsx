@@ -19,11 +19,9 @@ import {
   actionHint,
   aiSetupFromAnalysis,
   aiTradeAction,
-  aiTradeDraft,
-  type AiTradeDraft,
   type SavedAiSetup,
 } from "@/lib/paper-ai";
-import type { PendingAiSetup } from "@/lib/paper-ai-order";
+import { isActive, type PendingAiSetup } from "@/lib/paper-ai-order";
 
 const price = (n: number, decimals: number) =>
   n.toLocaleString("en-US", {
@@ -54,7 +52,8 @@ export interface PaperDeeeprPanelProps {
   saved: SavedAiSetup[];
   onPush: (levels: AiSetupLevels) => void;
   onClearPush: () => void;
-  onTake: (draft: AiTradeDraft) => void;
+  /** Arm the setup — creates a pending paper order that auto-executes. */
+  onArm: (levels: AiSetupLevels) => void;
   onSave: (levels: AiSetupLevels) => void;
   onLoadSaved: (levels: AiSetupLevels) => void;
   onTakeSaved: (levels: AiSetupLevels) => void;
@@ -80,7 +79,7 @@ export default function PaperDeeeprPanel({
   saved,
   onPush,
   onClearPush,
-  onTake,
+  onArm,
   onSave,
   onLoadSaved,
   onTakeSaved,
@@ -88,7 +87,6 @@ export default function PaperDeeeprPanel({
 }: PaperDeeeprPanelProps) {
   const { analysis, loading, dataStatus, gap, ageSeconds, candleCount } = deeepr;
   const levels = analysis ? aiSetupFromAnalysis(analysis) : null;
-  const draft = analysis ? aiTradeDraft(analysis) : null;
   const action = analysis
     ? aiTradeAction(analysis.decision, analysis.confidence)
     : "blocked";
@@ -269,20 +267,20 @@ export default function PaperDeeeprPanel({
             >
               <Sparkles className="size-3.5" />
               {levels && pushedId === levels.analysisId
-                ? "On chart · remove"
-                : "Push AI analysis"}
+                ? "HIDE FROM CHART"
+                : "PUSH ON CHART"}
             </button>
 
             <button
               type="button"
-              disabled={action !== "take" || !draft}
+              disabled={action !== "take" || !levels || isActive(pending)}
               onClick={() => {
-                if (action === "take" && draft) onTake(draft);
+                if (action === "take" && levels) onArm(levels);
               }}
               className="flex h-8 items-center gap-1.5 rounded-lg border border-[#00E676]/40 bg-[#00E676]/10 px-2.5 text-[11px] font-bold text-[#00E676] transition-colors hover:bg-[#00E676]/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send className="size-3.5" />
-              Take this trade
+              TAKE THIS TRADE
             </button>
 
             <button
@@ -303,13 +301,22 @@ export default function PaperDeeeprPanel({
             </span>
           </div>
 
-          <PendingOrderRow pending={pending} onRemove={onRemove} />
-
           <p className="text-[10px] leading-4 text-muted-foreground">
-            Simulation only — Push AI analysis creates a pending paper order that
-            fills once price trades into the zone, through the existing paper engine.
-            No broker order is ever sent.
+            <span className="font-bold text-purple-200">PUSH ON CHART</span> only
+            draws the levels — no order.{" "}
+            <span className="font-bold text-[#00E676]">TAKE THIS TRADE</span> arms one
+            simulated order that fills when price reaches the zone, via the existing
+            paper engine. No broker order is ever sent.
           </p>
+        </div>
+      )}
+
+      {pending && (
+        <div className="border-t border-[#1B263B] px-3 py-2">
+          <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+            AI setup status
+          </p>
+          <PendingOrderRow pending={pending} onRemove={onRemove} />
         </div>
       )}
 
@@ -377,14 +384,14 @@ export default function PaperDeeeprPanel({
 }
 
 const ACTIVE_STATUS: Record<string, string> = {
+  ANALYSING: "border-slate-500/40 bg-white/5 text-slate-300",
   READY: "border-[#A855F7]/50 bg-[#A855F7]/15 text-purple-100",
-  "PENDING ENTRY": "border-[#A855F7]/50 bg-[#A855F7]/15 text-purple-100",
-  "ENTRY TRIGGERED": "border-[#F4C430]/50 bg-[#F4C430]/15 text-[#F4C430]",
-  FILLED: "border-[#00E676]/50 bg-[#00E676]/15 text-[#00E676]",
+  ARMED: "border-[#A855F7]/50 bg-[#A855F7]/15 text-purple-100",
+  EXECUTED: "border-[#00E676]/50 bg-[#00E676]/15 text-[#00E676]",
+  CLOSED: "border-slate-500/40 bg-white/5 text-slate-300",
   CANCELLED: "border-slate-500/40 bg-white/5 text-slate-300",
   EXPIRED: "border-amber-500/40 bg-amber-500/10 text-amber-300",
   REJECTED: "border-[#FF1744]/50 bg-[#FF1744]/10 text-[#FF1744]",
-  ANALYZING: "border-slate-500/40 bg-white/5 text-slate-300",
 };
 
 function PendingOrderRow({
@@ -395,7 +402,7 @@ function PendingOrderRow({
   onRemove: () => void;
 }) {
   if (!pending) return null;
-  const executed = pending.status === "FILLED";
+  const executed = pending.status === "EXECUTED";
   return (
     <div
       className={cn(
@@ -414,7 +421,10 @@ function PendingOrderRow({
         zone {pending.entryLow.toFixed(2)}–{pending.entryHigh.toFixed(2)} · SL{" "}
         {pending.stopLoss.toFixed(2)}
       </span>
-      {!executed && pending.status !== "CANCELLED" && pending.status !== "EXPIRED" && (
+      {!executed &&
+        pending.status !== "CANCELLED" &&
+        pending.status !== "EXPIRED" &&
+        pending.status !== "CLOSED" && (
         <span className="font-mono text-[9px] opacity-70">
           expires {new Date(pending.expiresAt).toLocaleTimeString("en-IN", {
             hour: "2-digit",
@@ -437,6 +447,12 @@ function PendingOrderRow({
         <span className="w-full text-[10px] leading-4 opacity-90">
           This AI setup has already been executed. Removing its analysis will not
           close the open position — use the position controls under Open positions.
+        </span>
+      )}
+      {pending.status === "CLOSED" && (
+        <span className="w-full text-[10px] leading-4 opacity-90">
+          This AI trade is closed. Its record, realized P&amp;L and history remain
+          untouched; the box is available in historical view.
         </span>
       )}
     </div>

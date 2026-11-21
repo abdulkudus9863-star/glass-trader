@@ -9,20 +9,42 @@
 import type { AiSetupLevels } from "./paper-chart";
 
 export type AiSetupStatus =
-  | "ANALYZING"
+  | "ANALYSING"
   | "READY"
-  | "PENDING ENTRY"
-  | "ENTRY TRIGGERED"
-  | "FILLED"
+  | "ARMED"
+  | "EXECUTED"
+  | "CLOSED"
   | "CANCELLED"
   | "EXPIRED"
   | "REJECTED";
 
-export const ACTIVE_AI_STATUSES: AiSetupStatus[] = [
+/** Only ARMED setups may ever execute. */
+export const ACTIVE_AI_STATUSES: AiSetupStatus[] = ["ARMED"];
+
+const KNOWN_STATUSES = new Set<string>([
+  "ANALYSING",
+  "ANALYZING",
   "READY",
-  "PENDING ENTRY",
-  "ENTRY TRIGGERED",
-];
+  "ARMED",
+  "EXECUTED",
+  "CLOSED",
+  "CANCELLED",
+  "EXPIRED",
+  "REJECTED",
+]);
+
+/**
+ * Normalise persisted/legacy statuses onto the current lifecycle.
+ * READY is display-only; old PENDING/ENTRY TRIGGERED/FILLED records are
+ * migrated so a refresh can never resurrect a cancelled order or skip one.
+ */
+export function normaliseStatus(status: string | null | undefined): AiSetupStatus | null {
+  if (!status) return null;
+  if (status === "PENDING ENTRY" || status === "ENTRY TRIGGERED") return "ARMED";
+  if (status === "FILLED") return "EXECUTED";
+  if (status === "ANALYZING") return "ANALYSING";
+  return KNOWN_STATUSES.has(status) ? (status as AiSetupStatus) : null;
+}
 
 export interface PendingAiSetup {
   /** Deterministic id — also used as the execution clientToken. */
@@ -162,13 +184,21 @@ export function createPendingSetup(
       score: candidate.score,
       createdAt: now,
       expiresAt: setupExpiry(candidate.timeframe, now),
-      status: "PENDING ENTRY",
+      status: "ARMED",
     },
   };
 }
 
 export function isActive(setup: PendingAiSetup | null | undefined): boolean {
   return !!setup && ACTIVE_AI_STATUSES.includes(setup.status);
+}
+
+export function isExecuted(setup: PendingAiSetup | null | undefined): boolean {
+  return setup?.status === "EXECUTED";
+}
+
+export function isClosed(setup: PendingAiSetup | null | undefined): boolean {
+  return setup?.status === "CLOSED";
 }
 
 export type TriggerResult =
