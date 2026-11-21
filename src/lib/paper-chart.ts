@@ -218,6 +218,20 @@ export function buildMarketPriceLine(
   };
 }
 
+/**
+ * Trade ids that transitioned OPEN → CLOSED between two snapshots.
+ * Used to clear a completed order's overlay exactly once; records that were
+ * already closed before the snapshot are never reported again.
+ */
+export function newlyClosedTradeIds(
+  previous: ReadonlyMap<string, string>,
+  trades: ReadonlyArray<{ _id: string; status: string }>,
+): string[] {
+  return trades
+    .filter((t) => previous.get(t._id) === "OPEN" && t.status === "CLOSED")
+    .map((t) => t._id);
+}
+
 export interface ZoneSpan {
   /** Epoch ms when the trade started (stored record only). */
   from: number;

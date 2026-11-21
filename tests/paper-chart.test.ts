@@ -6,6 +6,7 @@ import {
   buildPreviewOverlays,
   buildTradeOverlays,
   formatOverlayPrice,
+  newlyClosedTradeIds,
   previewRiskReward,
   tradeZoneSpan,
   type PaperTradeLike,
@@ -144,6 +145,45 @@ describe("trade overlays", () => {
     const { lines, box } = buildTradeOverlays(bad);
     expect(lines).toHaveLength(0);
     expect(box).toBeNull();
+  });
+});
+
+describe("completed order cleanup", () => {
+  test("only a committed OPEN → CLOSED transition is reported", () => {
+    const previous = new Map([
+      ["a", "OPEN"],
+      ["b", "CLOSED"],
+      ["c", "OPEN"],
+    ]);
+    expect(
+      newlyClosedTradeIds(previous, [
+        { _id: "a", status: "CLOSED" },
+        { _id: "b", status: "CLOSED" },
+        { _id: "c", status: "OPEN" },
+      ]),
+    ).toEqual(["a"]);
+  });
+
+  test("the same closed snapshot never cleans up twice", () => {
+    const previous = new Map([["a", "CLOSED"]]);
+    expect(
+      newlyClosedTradeIds(previous, [{ _id: "a", status: "CLOSED" }]),
+    ).toEqual([]);
+  });
+
+  test("history loaded on refresh is not treated as newly completed", () => {
+    expect(
+      newlyClosedTradeIds(new Map(), [
+        { _id: "old", status: "CLOSED" },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("an open position is never reported even if a target was touched", () => {
+    const previous = new Map([["a", "OPEN"]]);
+    expect(
+      newlyClosedTradeIds(previous, [{ _id: "a", status: "OPEN" }]),
+    ).toEqual([]);
   });
 });
 

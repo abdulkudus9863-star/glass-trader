@@ -631,7 +631,7 @@ export default function PaperTradeChart({
                 {t.direction === "long" ? "L" : "S"}
               </span>
               {t.status === "CLOSED" && (
-                <span className="ml-1 text-[9px] text-[#00F0FF]">×</span>
+                <span className="ml-1 text-[9px] font-normal text-[#00F0FF]">hist</span>
               )}
             </button>
           ))}
@@ -727,6 +727,25 @@ export default function PaperTradeChart({
               clear
             </button>
           )}
+        </div>
+      )}
+
+      {selectedTrade?.status === "CLOSED" && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#1B263B] bg-[#00F0FF]/[0.05] px-3 py-1.5">
+          <span className="rounded border border-[#00F0FF]/40 bg-[#00F0FF]/10 px-1 py-px font-mono text-[9px] font-bold tracking-wide text-[#00F0FF]">
+            HISTORICAL VIEW
+          </span>
+          <p className="min-w-0 flex-1 text-[10px] leading-4 text-slate-400">
+            Closed order — stored entry, exit and targets only. This is not an active
+            position; its overlay is kept out of the live chart automatically.
+          </p>
+          <button
+            type="button"
+            onClick={() => onSelectTrade(null)}
+            className="shrink-0 rounded border border-[#1B263B] px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 hover:text-foreground"
+          >
+            back to active
+          </button>
         </div>
       )}
 

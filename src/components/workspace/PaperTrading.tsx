@@ -24,7 +24,11 @@ import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useKlines } from "@/hooks/use-klines";
 import { useDeeepr } from "@/hooks/use-deeepr";
 import { findSymbol, type TimeframeId } from "@/lib/market";
-import type { AiSetupLevels, PaperTradeLike } from "@/lib/paper-chart";
+import {
+  newlyClosedTradeIds,
+  type AiSetupLevels,
+  type PaperTradeLike,
+} from "@/lib/paper-chart";
 import {
   savedSetupFromAnalysis,
   upsertSavedSetup,
@@ -415,11 +419,18 @@ export default function PaperTrading({
 
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
 
-  /** Selected trade, defaulting to the newest record for the current symbol. */
+  /**
+   * Selected trade. An explicit selection (including a historical one) wins;
+   * otherwise the ACTIVE chart follows the newest OPEN position only, so fully
+   * closed orders never linger as live overlays.
+   */
   const selectedTrade = useMemo(() => {
-    const chosen = chartTrades.find((t) => t._id === selectedTradeId);
-    if (chosen && chosen.symbol === symbol) return chosen;
-    return chartTrades.find((t) => t.symbol === symbol) ?? null;
+    if (selectedTradeId) {
+      return chartTrades.find((t) => t._id === selectedTradeId) ?? null;
+    }
+    return (
+      chartTrades.find((t) => t.symbol === symbol && t.status === "OPEN") ?? null
+    );
   }, [chartTrades, selectedTradeId, symbol]);
 
   const klines = useKlines(symbol, intervalId);
@@ -661,6 +672,32 @@ export default function PaperTrading({
     const target = chartTrades.find((t) => t._id === id);
     if (target && target.symbol !== symbol) changeSymbol(target.symbol);
   };
+
+  /**
+   * Remove a completed order's overlay from the ACTIVE chart exactly once.
+   * History is untouched — the record stays in `trades` and can be re-opened
+   * in historical view by selecting it. Only the committed status transition
+   * OPEN → CLOSED triggers this, never an intraday touch of the target.
+   */
+  const prevStatusRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const previous = prevStatusRef.current;
+    const closedIds = newlyClosedTradeIds(previous, trades ?? []);
+    prevStatusRef.current = new Map(
+      (trades ?? []).map((t) => [t._id, t.status]),
+    );
+    const closedId =
+      selectedTradeId && closedIds.includes(selectedTradeId)
+        ? selectedTradeId
+        : null;
+    if (!closedId) return;
+    void Promise.resolve().then(() => {
+      setSelectedTradeId((currentId) => (currentId === closedId ? null : currentId));
+      toast.info(
+        "Position closed — its overlay was removed from the active chart. The record stays in Trade History.",
+      );
+    });
+  }, [trades, selectedTradeId]);
 
   const selectedMark = selectedTrade ? markFor(selectedTrade.symbol) : null;
   const selectedPnlInr =
