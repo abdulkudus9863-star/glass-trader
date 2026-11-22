@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { paperPnlInr } from "@/lib/paper-pnl";
+import { closeReasonLabel } from "@/lib/paper-engine";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -478,7 +479,7 @@ export default function Profile({ onOpenPaper }: { onOpenPaper?: () => void }) {
                     {t.symbol}
                   </span>
                   <span className="truncate text-[10px] text-slate-500">
-                    {t.closeReason ?? "manual"}
+                    {closeReasonLabel(t.closeReason ?? "manual")}
                   </span>
                   <span
                     className={cn(

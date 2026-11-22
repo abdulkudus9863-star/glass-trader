@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { paperPnlInr } from "@/lib/paper-pnl";
+import { closeReasonLabel } from "@/lib/paper-engine";
 import { validatePaperTrade } from "@/lib/paper-form";
 import { useMarketSnapshot } from "@/hooks/use-market-snapshot";
 import { useKlines } from "@/hooks/use-klines";
@@ -50,6 +51,7 @@ import {
 } from "@/lib/paper-ai-order";
 import PaperTradeChart from "./PaperTradeChart";
 import PaperDeeeprPanel from "./PaperDeeeprPanel";
+import PaperExitMonitor from "./PaperExitMonitor";
 
 /* ============================================================================
    PAPER TRADING — simulation panel.
@@ -398,6 +400,11 @@ export default function PaperTrading({
   const openTrades = useMemo(
     () => (trades ?? []).filter((t) => t.status === "OPEN"),
     [trades],
+  );
+  /** One monitor per symbol with an open position — no duplicate feeds. */
+  const monitorSymbols = useMemo(
+    () => [...new Set(openTrades.map((t) => t.symbol))],
+    [openTrades],
   );
   const closedTrades = useMemo(
     () => (trades ?? []).filter((t) => t.status === "CLOSED"),
@@ -813,69 +820,25 @@ export default function PaperTrading({
   };
 
   /**
-   * EXECUTED → CLOSED plus automatic SL/TP monitoring for the AI-executed
-   * position, all through the existing `paper.closeTrade` mutation. Manual
-   * positions keep their manual exit controls; only the AI trade is monitored.
+   * EXECUTED → CLOSED bookkeeping for the AI order panel. The actual SL/TP
+   * execution for EVERY open position (manual or AI) lives in
+   * `PaperExitMonitor`, so there is exactly one close path.
    */
-  const autoCloseRef = useRef<string | null>(null);
   useEffect(() => {
     if (!pending || pending.status !== "EXECUTED" || !pending.tradeId) return;
     const trade = (trades ?? []).find((t) => t._id === pending.tradeId);
-    if (!trade) return;
+    if (!trade || trade.status !== "CLOSED") return;
 
-    if (trade.status === "CLOSED") {
-      const closed = pending;
-      void Promise.resolve().then(() => {
-        if (closed.status !== "EXECUTED") return;
-        updatePending({
-          ...closed,
-          status: "CLOSED",
-          message: `Position closed${trade.exit != null ? ` @ ${trade.exit}` : ""} · realized ${trade.realizedPnlInr != null ? inr(trade.realizedPnlInr) : "—"}.`,
-        });
+    const closed = pending;
+    void Promise.resolve().then(() => {
+      if (closed.status !== "EXECUTED") return;
+      updatePending({
+        ...closed,
+        status: "CLOSED",
+        message: `Position closed${trade.exit != null ? ` @ ${trade.exit}` : ""} · ${closeReasonLabel(trade.closeReason)} · realized ${trade.realizedPnlInr != null ? inr(trade.realizedPnlInr) : "—"}.`,
       });
-      return;
-    }
-
-    if (trade.status !== "OPEN") return;
-    const mark = marks[trade.symbol]?.price ?? null;
-    if (mark == null) return;
-    const hitStop =
-      trade.direction === "long" ? mark <= trade.stopLoss : mark >= trade.stopLoss;
-    const hitTarget =
-      trade.takeProfit != null &&
-      (trade.direction === "long"
-        ? mark >= trade.takeProfit
-        : mark <= trade.takeProfit);
-    if (!hitStop && !hitTarget) return;
-    if (autoCloseRef.current === trade._id) return;
-    autoCloseRef.current = trade._id;
-
-    void Promise.resolve().then(async () => {
-      try {
-        const reason = hitStop ? "stop" : "target";
-        const res = await closeTrade({
-          tradeId: trade._id,
-          exit: mark,
-          reason,
-        });
-        if (res.alreadyClosed) {
-          toast.info("AI position was already closed.");
-        } else {
-          const pnl = res.trade.realizedPnlInr ?? 0;
-          toast.success(
-            `AI position auto-closed at ${reason === "stop" ? "stop-loss" : "take-profit"} · ${pnl >= 0 ? "+" : ""}${inr(pnl)} (simulation)`,
-          );
-        }
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Could not close the AI position.",
-        );
-      } finally {
-        autoCloseRef.current = null;
-      }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, trades, marks, closeTrade]);
+  }, [pending, trades]);
 
   /**
    * Remove a completed order's overlay from the ACTIVE chart exactly once.
@@ -980,6 +943,17 @@ export default function PaperTrading({
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-10 pt-2 sm:px-6">
+      {/* Headless SL/TP execution monitors — one per open symbol. */}
+      {monitorSymbols.map((sym) => (
+        <PaperExitMonitor
+          key={sym}
+          symbol={sym}
+          trades={openTrades.filter((t) => t.symbol === sym)}
+          mark={markFor(sym)}
+          closeTrade={closeTrade}
+        />
+      ))}
+
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -1677,7 +1651,7 @@ export default function PaperTrading({
                       {num(t.entry, 2)} → {t.exit !== undefined ? num(t.exit, 2) : "—"}
                     </td>
                     <td className="py-2 text-right text-[10px] uppercase text-muted-foreground">
-                      {t.closeReason ?? "—"}
+                      {closeReasonLabel(t.closeReason)}
                     </td>
                     <td
                       className={cn(
